@@ -209,24 +209,8 @@ impl State {
     }
 
     /// Returns whether an event has been fully processed.
-    pub(crate) fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                let cursor_x_normalized = position.x / self.size.width as f64;
-                let cursor_y_normalized = position.y / self.size.height as f64;
-                self.clear_color = wgpu::Color {
-                    r: cursor_x_normalized,
-                    g: cursor_y_normalized,
-                    b: cursor_x_normalized,
-                    a: 1.0,
-                };
-                true
-            }
-            _ => {
-                // Don't capture the event.
-                false
-            }
-        }
+    pub(crate) fn input(&mut self, _event: &WindowEvent) -> bool {
+        false
     }
 
     pub(crate) fn update(&mut self) {}
