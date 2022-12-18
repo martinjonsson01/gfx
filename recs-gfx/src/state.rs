@@ -1,8 +1,9 @@
 use crate::camera::{Camera, CameraUniform};
 use crate::camera_controller::CameraController;
 use crate::instance::{Instance, InstanceRaw};
+use crate::texture::Texture;
 use crate::vertex::Vertex;
-use crate::{texture, EventPropagation};
+use crate::EventPropagation;
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
 use wgpu::util::DeviceExt;
@@ -76,7 +77,7 @@ pub(crate) struct State {
     /// Binding the texture uniform to the shaders.
     diffuse_bind_group: wgpu::BindGroup,
     /// A texture to use in shaders.
-    _diffuse_texture: texture::Texture,
+    _diffuse_texture: Texture,
     /// Model instances, to allow for one model to be shown multiple times with different transforms.
     ///
     /// If new instances are added, [`instance_buffer`] and [`camera_bind_group`] needs to be recreated,
@@ -84,6 +85,8 @@ pub(crate) struct State {
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     instance_rotation_delta: f32,
+    /// Used for depth-testing (z-culling) to render pixels in front of each other correctly.
+    depth_texture: Texture,
 }
 
 impl State {
@@ -138,9 +141,8 @@ impl State {
         surface.configure(&device, &config);
 
         let diffuse_bytes = include_bytes!("../happy-tree.png");
-        let diffuse_texture =
-            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png")
-                .expect("should be able to load png");
+        let diffuse_texture = Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png")
+            .expect("should be able to load png");
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -250,6 +252,8 @@ impl State {
         let offset = 0.0;
         let (instances, instance_buffer) = create_instances(&device, offset);
 
+        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+
         Self {
             surface,
             device,
@@ -271,6 +275,7 @@ impl State {
             instances,
             instance_buffer,
             instance_rotation_delta: 0.0,
+            depth_texture,
         }
     }
 
@@ -280,6 +285,8 @@ impl State {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+            self.depth_texture =
+                Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         }
     }
 
@@ -326,7 +333,14 @@ impl State {
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
@@ -426,7 +440,13 @@ fn create_render_pipeline(
             // Requires Features::CONSERVATIVE_RASTERIZATION
             conservative: false,
         },
-        depth_stencil: None,
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: Texture::DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
         multisample: wgpu::MultisampleState {
             count: 1,
             mask: !0,
