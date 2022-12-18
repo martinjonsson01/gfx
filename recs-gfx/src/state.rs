@@ -1,3 +1,4 @@
+use wgpu::Color;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -12,6 +13,8 @@ pub(crate) struct State {
     config: wgpu::SurfaceConfiguration,
     /// The physical size of the [`Window`]'s content area.
     pub(crate) size: winit::dpi::PhysicalSize<u32>,
+    /// What color to clear the display with every frame.
+    clear_color: wgpu::Color,
 }
 
 impl State {
@@ -65,12 +68,20 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        let clear_color = Color {
+            r: 0.1,
+            g: 0.2,
+            b: 0.3,
+            a: 1.0,
+        };
+
         Self {
             surface,
             device,
             queue,
             config,
             size,
+            clear_color,
         }
     }
 
@@ -84,8 +95,24 @@ impl State {
     }
 
     /// Returns whether an event has been fully processed.
-    pub(crate) fn input(&mut self, _event: &WindowEvent) -> bool {
-        false
+    pub(crate) fn input(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                let cursor_x_normalized = position.x / self.size.width as f64;
+                let cursor_y_normalized = position.y / self.size.height as f64;
+                self.clear_color = Color {
+                    r: cursor_x_normalized,
+                    g: cursor_y_normalized,
+                    b: cursor_x_normalized,
+                    a: 1.0,
+                };
+                true
+            }
+            _ => {
+                // Don't capture the event.
+                false
+            }
+        }
     }
 
     pub(crate) fn update(&mut self) {}
@@ -109,12 +136,7 @@ impl State {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.clear_color),
                         store: true,
                     },
                 })],
