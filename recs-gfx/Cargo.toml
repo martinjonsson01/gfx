@@ -14,6 +14,7 @@ log = "0.4.17"          # For lightweight logging
 wgpu = "0.14.2"         # For GPU programming (interfaces with Vulkan, Metal, DX12 and Browser WebGPU)
 rayon = "1.6.1"         # For CPU parallelism
 num_cpus = "1.14.0"     # To get the number of CPU cores available
+bytemuck = { version = "1.4.1", features = ["derive"] } # For casting to byte slices
 
 [dev-dependencies]
 criterion = { version = "0.4.0", features = ["html_reports"] }      # For benchmarking

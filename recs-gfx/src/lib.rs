@@ -26,6 +26,7 @@
 )]
 
 mod state;
+mod vertex;
 
 use crate::state::State;
 use winit::window::Window;
