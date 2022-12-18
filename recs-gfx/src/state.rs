@@ -83,6 +83,7 @@ pub(crate) struct State {
     /// otherwise the new instances won't show up correctly.
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
+    instance_rotation_delta: f32,
 }
 
 impl State {
@@ -246,33 +247,8 @@ impl State {
         });
         let num_indices = INDICES.len() as u32;
 
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let position = Vector3 {
-                        x: x as f32,
-                        y: 0.0,
-                        z: z as f32,
-                    } - INSTANCE_DISPLACEMENT;
-
-                    let rotation = if position.is_zero() {
-                        // This is needed so an object at (0, 0, 0) won't get scaled to zero
-                        // as Quaternions can effect scale if they're not created correctly.
-                        Quaternion::from_axis_angle(Vector3::unit_z(), Deg(0.0))
-                    } else {
-                        Quaternion::from_axis_angle(position.normalize(), Deg(45.0))
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let offset = 0.0;
+        let (instances, instance_buffer) = create_instances(&device, offset);
 
         Self {
             surface,
@@ -294,6 +270,7 @@ impl State {
             _diffuse_texture: diffuse_texture,
             instances,
             instance_buffer,
+            instance_rotation_delta: 0.0,
         }
     }
 
@@ -318,6 +295,12 @@ impl State {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+
+        self.instance_rotation_delta += 0.1;
+        let (instances, instance_buffer) =
+            create_instances(&self.device, self.instance_rotation_delta);
+        self.instances = instances;
+        self.instance_buffer = instance_buffer;
     }
 
     pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -360,6 +343,37 @@ impl State {
 
         Ok(())
     }
+}
+
+fn create_instances(device: &wgpu::Device, offset: f32) -> (Vec<Instance>, wgpu::Buffer) {
+    let instances = (0..NUM_INSTANCES_PER_ROW)
+        .flat_map(|z| {
+            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                let position = Vector3 {
+                    x: x as f32,
+                    y: 0.0,
+                    z: z as f32,
+                } - INSTANCE_DISPLACEMENT;
+
+                let rotation = if position.is_zero() {
+                    // This is needed so an object at (0, 0, 0) won't get scaled to zero
+                    // as Quaternions can effect scale if they're not created correctly.
+                    Quaternion::from_axis_angle(Vector3::unit_z(), Deg(0.0))
+                } else {
+                    Quaternion::from_axis_angle(position.normalize(), Deg(45.0 + offset))
+                };
+
+                Instance { position, rotation }
+            })
+        })
+        .collect::<Vec<_>>();
+    let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+    let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Instance Buffer"),
+        contents: bytemuck::cast_slice(&instance_data),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    (instances, instance_buffer)
 }
 
 fn create_render_pipeline(
