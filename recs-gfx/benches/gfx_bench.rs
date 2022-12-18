@@ -1,15 +1,13 @@
-﻿use criterion::{criterion_group, criterion_main, Bencher, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use std::time::Duration;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group(group_name);
+    let mut group = c.benchmark_group("example group");
     group.measurement_time(Duration::from_secs(10));
     group.sample_size(1000);
-    group.bench_with_input(
-        BenchmarkId::from_parameter(format!("10^{magnitude:?}")),
-        &search_up_to,
-        || println!("No benchmark implemented yet"),
-    );
+    group.bench_function("example", |bencher| {
+        bencher.iter(|| println!("No benchmark implemented yet"))
+    });
     group.finish();
 }
 
