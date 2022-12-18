@@ -1,14 +1,11 @@
 //! A simple graphics engine that provides a simple API for simple graphics.
 
-#![feature(strict_provenance)]
 // rustc lints
 #![warn(
     let_underscore,
     nonstandard_style,
     unused,
     explicit_outlives_requirements,
-    fuzzy_provenance_casts,
-    lossy_provenance_casts,
     meta_variable_misuse,
     missing_debug_implementations,
     missing_docs,

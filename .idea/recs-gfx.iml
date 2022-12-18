@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/example-app/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/recs-gfx/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/recs-gfx/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tutorial3-pipeline/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/recs-gfx/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>

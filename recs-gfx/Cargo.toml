@@ -8,10 +8,10 @@ authors = ["Martin Jonsson <martinjonsson01@gmail.com>"]
 bench = false # Using Criterion means we don't need ordinary cargo bench
 
 [dependencies]
-winit = "0.27"          # For window creation
+winit = "0.27.5"        # For window creation
 env_logger = "0.10.0"   # Makes logging configurable via environment variables
-log = "0.4"             # For lightweight logging
-wgpu = "0.14"           # For GPU programming (interfaces with Vulkan, Metal, DX12 and Browser WebGPU)
+log = "0.4.17"          # For lightweight logging
+wgpu = "0.14.2"         # For GPU programming (interfaces with Vulkan, Metal, DX12 and Browser WebGPU)
 rayon = "1.6.1"         # For CPU parallelism
 num_cpus = "1.14.0"     # To get the number of CPU cores available
 

@@ -1,4 +1,3 @@
-use wgpu::Color;
 use winit::event::WindowEvent;
 use winit::window::Window;
 
@@ -15,6 +14,8 @@ pub(crate) struct State {
     pub(crate) size: winit::dpi::PhysicalSize<u32>,
     /// What color to clear the display with every frame.
     clear_color: wgpu::Color,
+    /// How the GPU acts on a set of data.
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -68,21 +69,85 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let clear_color = Color {
+        let clear_color = wgpu::Color {
             r: 0.1,
             g: 0.2,
             b: 0.3,
             a: 1.0,
         };
 
+        let render_pipeline = Self::create_render_pipeline(&device, &config);
+
         Self {
             surface,
             device,
             queue,
-            config,
             size,
+            config,
             clear_color,
+            render_pipeline,
         }
+    }
+
+    fn create_render_pipeline(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
+                // or Features::POLYGON_MODE_POINT
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            // If the pipeline will be used with a multiview render pass, this
+            // indicates how many array layers the attachments will have.
+            multiview: None,
+        })
     }
 
     pub(crate) fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -100,7 +165,7 @@ impl State {
             WindowEvent::CursorMoved { position, .. } => {
                 let cursor_x_normalized = position.x / self.size.width as f64;
                 let cursor_y_normalized = position.y / self.size.height as f64;
-                self.clear_color = Color {
+                self.clear_color = wgpu::Color {
                     r: cursor_x_normalized,
                     g: cursor_y_normalized,
                     b: cursor_x_normalized,
@@ -130,7 +195,7 @@ impl State {
             });
 
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -142,6 +207,9 @@ impl State {
                 })],
                 depth_stencil_attachment: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
