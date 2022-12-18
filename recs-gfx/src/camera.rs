@@ -16,7 +16,7 @@ pub struct Camera {
     pub position: Point3<f32>,
     /// The world-space location of where the camera is looking.
     pub target: Point3<f32>,
-    /// Which direction in world-space is up.
+    /// Which direction in world-space is up (normalized).
     pub up: Vector3<f32>,
     /// The aspect ratio of the viewport.
     pub aspect: f32,

@@ -10,6 +10,8 @@ pub struct CameraController {
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
+    is_up_pressed: bool,
+    is_down_pressed: bool,
 }
 
 impl CameraController {
@@ -20,6 +22,8 @@ impl CameraController {
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
+            is_up_pressed: false,
+            is_down_pressed: false,
         }
     }
 
@@ -52,6 +56,14 @@ impl CameraController {
                         self.is_right_pressed = is_pressed;
                         Consume
                     }
+                    VirtualKeyCode::E => {
+                        self.is_up_pressed = is_pressed;
+                        Consume
+                    }
+                    VirtualKeyCode::Q => {
+                        self.is_down_pressed = is_pressed;
+                        Consume
+                    }
                     _ => Propagate,
                 }
             }
@@ -73,11 +85,18 @@ impl CameraController {
             camera.position -= forward_norm * self.speed;
         }
 
-        let right = forward_norm.cross(camera.up);
+        if self.is_up_pressed {
+            camera.position += camera.up * self.speed;
+        }
+        if self.is_down_pressed {
+            camera.position -= camera.up * self.speed;
+        }
 
         // Redo radius calc in case the forward/backward is pressed.
         let forward = camera.target - camera.position;
         let forward_mag = forward.magnitude();
+
+        let right = forward_norm.cross(camera.up);
 
         if self.is_right_pressed {
             // Rescale the distance between the target and eye so

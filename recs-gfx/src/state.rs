@@ -260,7 +260,6 @@ impl State {
         }
     }
 
-    /// Returns whether an event has been fully processed.
     pub(crate) fn input(&mut self, event: &WindowEvent) -> EventPropagation {
         self.camera_controller.process_events(event)
     }
