@@ -27,6 +27,7 @@
 
 mod camera;
 mod camera_controller;
+mod instance;
 mod state;
 mod texture;
 mod vertex;
@@ -38,6 +39,18 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+
+mod shader_locations {
+    use wgpu::ShaderLocation;
+
+    pub const VERTEX_POSITION: ShaderLocation = 0;
+    pub const VERTEX_TEXTURE_COORDINATES: ShaderLocation = 1;
+
+    pub const INSTANCE_MODEL_MATRIX_COLUMN_0: ShaderLocation = 5;
+    pub const INSTANCE_MODEL_MATRIX_COLUMN_1: ShaderLocation = 6;
+    pub const INSTANCE_MODEL_MATRIX_COLUMN_2: ShaderLocation = 7;
+    pub const INSTANCE_MODEL_MATRIX_COLUMN_3: ShaderLocation = 8;
+}
 
 /// Starts the graphics engine, opening a new window and rendering to it.
 pub async fn run() {

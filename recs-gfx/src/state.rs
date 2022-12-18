@@ -1,7 +1,10 @@
 use crate::camera::{Camera, CameraUniform};
 use crate::camera_controller::CameraController;
+use crate::instance::{Instance, InstanceRaw};
 use crate::vertex::Vertex;
 use crate::{texture, EventPropagation};
+use cgmath::prelude::*;
+use cgmath::{Deg, Quaternion, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -31,6 +34,13 @@ const VERTICES: &[Vertex] = &[
 ];
 
 const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+
+const NUM_INSTANCES_PER_ROW: u32 = 10;
+const INSTANCE_DISPLACEMENT: Vector3<f32> = Vector3::new(
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+    0.0,
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+);
 
 pub(crate) struct State {
     /// The part of the [`Window`] that we draw to.
@@ -67,6 +77,12 @@ pub(crate) struct State {
     diffuse_bind_group: wgpu::BindGroup,
     /// A texture to use in shaders.
     _diffuse_texture: texture::Texture,
+    /// Model instances, to allow for one model to be shown multiple times with different transforms.
+    ///
+    /// If new instances are added, [`instance_buffer`] and [`camera_bind_group`] needs to be recreated,
+    /// otherwise the new instances won't show up correctly.
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
 }
 
 impl State {
@@ -172,7 +188,7 @@ impl State {
         let camera = Camera {
             position: (0.0, 1.0, 2.0).into(),
             target: (0.0, 0.0, 0.0).into(),
-            up: cgmath::Vector3::unit_y(),
+            up: Vector3::unit_y(),
             aspect: config.width as f32 / config.height as f32,
             fovy: 45.0,
             znear: 0.1,
@@ -230,6 +246,34 @@ impl State {
         });
         let num_indices = INDICES.len() as u32;
 
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let position = Vector3 {
+                        x: x as f32,
+                        y: 0.0,
+                        z: z as f32,
+                    } - INSTANCE_DISPLACEMENT;
+
+                    let rotation = if position.is_zero() {
+                        // This is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as Quaternions can effect scale if they're not created correctly.
+                        Quaternion::from_axis_angle(Vector3::unit_z(), Deg(0.0))
+                    } else {
+                        Quaternion::from_axis_angle(position.normalize(), Deg(45.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Self {
             surface,
             device,
@@ -248,6 +292,8 @@ impl State {
             num_indices,
             diffuse_bind_group,
             _diffuse_texture: diffuse_texture,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -304,8 +350,9 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -338,7 +385,7 @@ fn create_render_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[Vertex::descriptor()],
+            buffers: &[Vertex::descriptor(), InstanceRaw::descriptor()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
