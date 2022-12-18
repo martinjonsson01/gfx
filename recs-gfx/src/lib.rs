@@ -53,6 +53,15 @@ pub async fn run() {
         .run(move |event, _, control_flow| handle_events(&window, &mut state, event, control_flow));
 }
 
+/// Whether an event should continue to propagate, or be consumed.
+#[derive(Eq, PartialEq)]
+pub(crate) enum EventPropagation {
+    /// Ends the propagation, the event is seen as handled.
+    Consume,
+    /// Continues the propagation, the event is not seen as handled.
+    Propagate,
+}
+
 fn handle_events(
     window: &Window,
     state: &mut State,
@@ -66,7 +75,7 @@ fn handle_events(
         } if window_id == window.id() => {
             // Let state choose whether to handle the event instead of event_loop,
             // so it can override behaviors.
-            if !state.input(event) {
+            if state.input(event) == EventPropagation::Propagate {
                 handle_window_event(state, control_flow, event);
             }
         }

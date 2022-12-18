@@ -1,4 +1,6 @@
 use crate::camera::Camera;
+use crate::EventPropagation;
+use crate::EventPropagation::{Consume, Propagate};
 use cgmath::InnerSpace;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -21,8 +23,7 @@ impl CameraController {
         }
     }
 
-    pub fn process_events(&mut self, event: &WindowEvent) -> bool {
-        // TODO: instead of bool use enum with meaningful name
+    pub(crate) fn process_events(&mut self, event: &WindowEvent) -> EventPropagation {
         match event {
             WindowEvent::KeyboardInput {
                 input:
@@ -37,24 +38,24 @@ impl CameraController {
                 match keycode {
                     VirtualKeyCode::W | VirtualKeyCode::Up => {
                         self.is_forward_pressed = is_pressed;
-                        true
+                        Consume
                     }
                     VirtualKeyCode::A | VirtualKeyCode::Left => {
                         self.is_left_pressed = is_pressed;
-                        true
+                        Consume
                     }
                     VirtualKeyCode::S | VirtualKeyCode::Down => {
                         self.is_backward_pressed = is_pressed;
-                        true
+                        Consume
                     }
                     VirtualKeyCode::D | VirtualKeyCode::Right => {
                         self.is_right_pressed = is_pressed;
-                        true
+                        Consume
                     }
-                    _ => false,
+                    _ => Propagate,
                 }
             }
-            _ => false,
+            _ => Propagate,
         }
     }
 

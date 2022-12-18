@@ -1,7 +1,7 @@
 use crate::camera::{Camera, CameraUniform};
 use crate::camera_controller::CameraController;
-use crate::texture;
 use crate::vertex::Vertex;
+use crate::{texture, EventPropagation};
 use wgpu::util::DeviceExt;
 use winit::event::WindowEvent;
 use winit::window::Window;
@@ -261,7 +261,7 @@ impl State {
     }
 
     /// Returns whether an event has been fully processed.
-    pub(crate) fn input(&mut self, event: &WindowEvent) -> bool {
+    pub(crate) fn input(&mut self, event: &WindowEvent) -> EventPropagation {
         self.camera_controller.process_events(event)
     }
 
