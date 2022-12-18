@@ -1,0 +1,11 @@
+﻿[workspace]
+package.edition = "2021"
+resolver = "2"
+
+members = [
+    "recs-gfx",
+    "example-app",
+]
+
+[profile.release]
+debug = true # Include debug symbols in release binaries
