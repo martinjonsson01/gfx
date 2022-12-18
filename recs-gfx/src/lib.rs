@@ -25,6 +25,8 @@
     clippy::unwrap_used
 )]
 
+mod camera;
+mod camera_controller;
 mod state;
 mod texture;
 mod vertex;

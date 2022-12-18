@@ -17,6 +17,7 @@ num_cpus = "1.14.0"     # To get the number of CPU cores available
 bytemuck = { version = "1.4.1", features = ["derive"] }     # For casting to byte slices
 image = { version = "0.24.5", features = ["png", "jpeg"] }  # For loading of images
 anyhow = "1.0.67"       # For simple error handling
+cgmath = "0.18.0"       # For linear algebra
 
 [dev-dependencies]
 criterion = { version = "0.4.0", features = ["html_reports"] }      # For benchmarking
