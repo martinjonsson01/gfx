@@ -35,10 +35,6 @@ pub(crate) struct State {
     camera_bind_group: wgpu::BindGroup,
     /// How the GPU acts on a set of data.
     render_pipeline: wgpu::RenderPipeline,
-    /// Binding the texture uniform to the shaders.
-    diffuse_bind_group: wgpu::BindGroup,
-    /// A texture to use in shaders.
-    _diffuse_texture: Texture,
     /// Model instances, to allow for one model to be shown multiple times with different transforms.
     ///
     /// If new instances are added, [`instance_buffer`] and [`camera_bind_group`] needs to be recreated,
@@ -103,10 +99,6 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let diffuse_bytes = include_bytes!("../happy-tree.png");
-        let diffuse_texture = Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png")
-            .expect("should be able to load png");
-
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -129,20 +121,6 @@ impl State {
                 ],
                 label: Some("texture_bind_group_layout"),
             });
-        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                },
-            ],
-            label: Some("diffuse_bind_group"),
-        });
 
         let clear_color = wgpu::Color {
             r: 0.1,
@@ -222,8 +200,6 @@ impl State {
             camera_buffer,
             camera_bind_group,
             render_pipeline,
-            diffuse_bind_group,
-            _diffuse_texture: diffuse_texture,
             instances,
             instance_buffer,
             instance_rotation_delta: 0.0,
@@ -296,12 +272,18 @@ impl State {
                 }),
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass
-                .draw_mesh_instanced(&self.obj_model.meshes[0], 0..self.instances.len() as u32);
+
+            render_pass.set_pipeline(&self.render_pipeline);
+
+            let mesh = &self.obj_model.meshes[0];
+            let material = &self.obj_model.materials[mesh.material_index];
+            render_pass.draw_mesh_instanced(
+                mesh,
+                material,
+                0..self.instances.len() as u32,
+                &self.camera_bind_group,
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
