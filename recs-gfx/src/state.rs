@@ -1,7 +1,7 @@
 use crate::camera::{Camera, CameraUniform};
 use crate::camera_controller::CameraController;
 use crate::instance::{Instance, InstanceRaw};
-use crate::model::{DrawModel, Model, ModelVertex, Vertex};
+use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
 use crate::texture::Texture;
 use crate::{resources, EventPropagation};
 use cgmath::prelude::*;
@@ -9,6 +9,18 @@ use cgmath::{Deg, Quaternion, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::WindowEvent;
 use winit::window::Window;
+
+/// A point-light that emits light in every direction and has no area.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct PointLightUniform {
+    position: [f32; 3],
+    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here.
+    _padding: u32,
+    color: [f32; 3],
+    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here.
+    _padding2: u32,
+}
 
 pub(crate) struct State {
     /// The part of the [`Window`] that we draw to.
@@ -46,6 +58,12 @@ pub(crate) struct State {
     depth_texture: Texture,
     /// The model to render.
     obj_model: Model,
+    /// The uniform-representation of the light. (currently only single light supported)
+    light_uniform: PointLightUniform,
+    light_buffer: wgpu::Buffer,
+    light_bind_group: wgpu::BindGroup,
+    /// How the GPU acts on lights.
+    light_render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -170,12 +188,84 @@ impl State {
             label: Some("camera_bind_group"),
         });
 
-        let render_pipeline = create_render_pipeline(
-            &device,
-            &config,
-            &texture_bind_group_layout,
-            &camera_bind_group_layout,
-        );
+        let light_uniform = PointLightUniform {
+            position: [2.0, 2.0, 2.0],
+            _padding: 0,
+            color: [1.0, 1.0, 1.0],
+            _padding2: 0,
+        };
+        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Light VB"),
+            contents: bytemuck::cast_slice(&[light_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let light_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: None,
+            });
+        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &light_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: light_buffer.as_entire_binding(),
+            }],
+            label: None,
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &texture_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let render_pipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            };
+            create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(Texture::DEPTH_FORMAT),
+                &[ModelVertex::descriptor(), InstanceRaw::descriptor()],
+                shader,
+            )
+        };
+
+        let light_render_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Light Pipeline Layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Light Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+            };
+            create_render_pipeline(
+                &device,
+                &layout,
+                config.format,
+                Some(Texture::DEPTH_FORMAT),
+                &[ModelVertex::descriptor()],
+                shader,
+            )
+        };
 
         let obj_model =
             resources::load_model("cube.obj", &device, &queue, &texture_bind_group_layout)
@@ -205,6 +295,10 @@ impl State {
             instance_rotation_delta: 0.0,
             depth_texture,
             obj_model,
+            light_uniform,
+            light_buffer,
+            light_bind_group,
+            light_render_pipeline,
         }
     }
 
@@ -232,11 +326,22 @@ impl State {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
 
+        // Animate instance rotation
         self.instance_rotation_delta += 0.1;
         let (instances, instance_buffer) =
             create_instances(&self.device, self.instance_rotation_delta);
         self.instances = instances;
         self.instance_buffer = instance_buffer;
+
+        // Animate light rotation
+        let old_position: Vector3<_> = self.light_uniform.position.into();
+        self.light_uniform.position =
+            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(1.0)) * old_position).into();
+        self.queue.write_buffer(
+            &self.light_buffer,
+            0,
+            bytemuck::cast_slice(&[self.light_uniform]),
+        );
     }
 
     pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -273,11 +378,20 @@ impl State {
             });
 
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+
+            render_pass.set_pipeline(&self.light_render_pipeline);
+            render_pass.draw_light_model(
+                &self.obj_model,
+                &self.camera_bind_group,
+                &self.light_bind_group,
+            );
+
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.draw_model_instanced(
                 &self.obj_model,
                 0..self.instances.len() as u32,
                 &self.camera_bind_group,
+                &self.light_bind_group,
             );
         }
 
@@ -324,34 +438,27 @@ fn create_instances(device: &wgpu::Device, offset: f32) -> (Vec<Instance>, wgpu:
 
 fn create_render_pipeline(
     device: &wgpu::Device,
-    config: &wgpu::SurfaceConfiguration,
-    texture_bind_group_layout: &wgpu::BindGroupLayout,
-    camera_bind_group_layout: &wgpu::BindGroupLayout,
+    layout: &wgpu::PipelineLayout,
+    color_format: wgpu::TextureFormat,
+    depth_format: Option<wgpu::TextureFormat>,
+    vertex_layouts: &[wgpu::VertexBufferLayout],
+    shader: wgpu::ShaderModuleDescriptor,
 ) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-    });
-
-    let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Render Pipeline Layout"),
-        bind_group_layouts: &[texture_bind_group_layout, camera_bind_group_layout],
-        push_constant_ranges: &[],
-    });
+    let shader = device.create_shader_module(shader);
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Render Pipeline"),
-        layout: Some(&render_pipeline_layout),
+        layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[ModelVertex::descriptor(), InstanceRaw::descriptor()],
+            buffers: vertex_layouts,
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: "fs_main",
             targets: &[Some(wgpu::ColorTargetState {
-                format: config.format,
+                format: color_format,
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent::REPLACE,
                     alpha: wgpu::BlendComponent::REPLACE,
@@ -372,8 +479,8 @@ fn create_render_pipeline(
             // Requires Features::CONSERVATIVE_RASTERIZATION
             conservative: false,
         },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: Texture::DEPTH_FORMAT,
+        depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
+            format,
             depth_write_enabled: true,
             depth_compare: wgpu::CompareFunction::Less,
             stencil: wgpu::StencilState::default(),
