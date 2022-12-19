@@ -148,7 +148,7 @@ impl State {
         };
 
         let camera = Camera {
-            position: (0.0, 1.0, 2.0).into(),
+            position: (0.0, 5.0, 2.0).into(),
             target: (0.0, 0.0, 0.0).into(),
             up: Vector3::unit_y(),
             aspect: config.width as f32 / config.height as f32,
@@ -169,7 +169,7 @@ impl State {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -189,7 +189,7 @@ impl State {
         });
 
         let light_uniform = PointLightUniform {
-            position: [2.0, 2.0, 2.0],
+            position: [5.0, 5.0, 5.0],
             _padding: 0,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
@@ -336,7 +336,7 @@ impl State {
         // Animate light rotation
         let old_position: Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position =
-            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(1.0)) * old_position).into();
+            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(0.1)) * old_position).into();
         self.queue.write_buffer(
             &self.light_buffer,
             0,

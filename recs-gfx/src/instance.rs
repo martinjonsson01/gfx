@@ -1,5 +1,5 @@
 use crate::shader_locations::*;
-use cgmath::{Matrix4, Quaternion, Vector3};
+use cgmath::{Matrix3, Matrix4, Quaternion, Vector3};
 use std::mem::size_of;
 
 /// The transform of an instance of a model.
@@ -9,8 +9,10 @@ pub struct Instance {
 }
 impl Instance {
     pub fn to_raw(&self) -> InstanceRaw {
+        let model = Matrix4::from_translation(self.position) * Matrix4::from(self.rotation);
         InstanceRaw {
-            model: (Matrix4::from_translation(self.position) * Matrix4::from(self.rotation)).into(),
+            model: model.into(),
+            normal: Matrix3::from(self.rotation).into(),
         }
     }
 }
@@ -20,6 +22,8 @@ impl Instance {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
     model: [[f32; 4]; 4],
+    /// Can't use model matrix to transform normals, as we only want to rotate them.
+    normal: [[f32; 3]; 3],
 }
 impl InstanceRaw {
     pub fn descriptor<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -46,6 +50,21 @@ impl InstanceRaw {
                     offset: size_of::<[f32; 12]>() as wgpu::BufferAddress,
                     shader_location: INSTANCE_MODEL_MATRIX_COLUMN_3,
                     format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 16]>() as wgpu::BufferAddress,
+                    shader_location: INSTANCE_NORMAL_MATRIX_COLUMN_0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 19]>() as wgpu::BufferAddress,
+                    shader_location: INSTANCE_NORMAL_MATRIX_COLUMN_1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: size_of::<[f32; 22]>() as wgpu::BufferAddress,
+                    shader_location: INSTANCE_NORMAL_MATRIX_COLUMN_2,
+                    format: wgpu::VertexFormat::Float32x3,
                 },
             ],
         }

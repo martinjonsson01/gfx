@@ -52,6 +52,9 @@ mod shader_locations {
     pub const INSTANCE_MODEL_MATRIX_COLUMN_1: ShaderLocation = 6;
     pub const INSTANCE_MODEL_MATRIX_COLUMN_2: ShaderLocation = 7;
     pub const INSTANCE_MODEL_MATRIX_COLUMN_3: ShaderLocation = 8;
+    pub const INSTANCE_NORMAL_MATRIX_COLUMN_0: ShaderLocation = 9;
+    pub const INSTANCE_NORMAL_MATRIX_COLUMN_1: ShaderLocation = 10;
+    pub const INSTANCE_NORMAL_MATRIX_COLUMN_2: ShaderLocation = 11;
 }
 
 /// Starts the graphics engine, opening a new window and rendering to it.

@@ -42,17 +42,22 @@ impl Camera {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
+    /// The world-space location of the camera.
+    view_position: [f32; 4],
+    /// Transformation matrix that transforms from world space to view space to clip space.
+    view_projection: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
     pub fn new() -> Self {
         Self {
-            view_proj: Matrix4::identity().into(),
+            view_position: [0.0; 4],
+            view_projection: Matrix4::identity().into(),
         }
     }
 
     pub fn update_view_projection(&mut self, camera: &Camera) {
-        self.view_proj = camera.build_view_projection_matrix().into();
+        self.view_position = camera.position.to_homogeneous().into();
+        self.view_projection = camera.build_view_projection_matrix().into();
     }
 }
