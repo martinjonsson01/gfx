@@ -120,6 +120,7 @@ impl State {
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
+                    // Texture.
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -132,6 +133,23 @@ impl State {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    // Normal map.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -189,7 +207,7 @@ impl State {
         });
 
         let light_uniform = PointLightUniform {
-            position: [5.0, 5.0, 5.0],
+            position: [2.0, 2.0, 2.0],
             _padding: 0,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
@@ -336,7 +354,7 @@ impl State {
         // Animate light rotation
         let old_position: Vector3<_> = self.light_uniform.position.into();
         self.light_uniform.position =
-            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(0.1)) * old_position).into();
+            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(1.0)) * old_position).into();
         self.queue.write_buffer(
             &self.light_buffer,
             0,

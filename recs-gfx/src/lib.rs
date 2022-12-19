@@ -47,6 +47,8 @@ mod shader_locations {
     pub const VERTEX_POSITION: ShaderLocation = 0;
     pub const VERTEX_TEXTURE_COORDINATES: ShaderLocation = 1;
     pub const VERTEX_NORMAL: ShaderLocation = 2;
+    pub const VERTEX_TANGENT: ShaderLocation = 3;
+    pub const VERTEX_BITANGENT: ShaderLocation = 4;
 
     pub const INSTANCE_MODEL_MATRIX_COLUMN_0: ShaderLocation = 5;
     pub const INSTANCE_MODEL_MATRIX_COLUMN_1: ShaderLocation = 6;
