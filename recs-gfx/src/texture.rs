@@ -4,7 +4,7 @@ use image::GenericImageView;
 /// How many bytes a pixel in an 8-bit texture contains. (1 byte for r, g, b and a)
 const RGBA_U8_BYTES: u32 = 4;
 
-pub(crate) struct Texture {
+pub struct Texture {
     pub _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,

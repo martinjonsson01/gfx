@@ -1,47 +1,14 @@
 use crate::camera::{Camera, CameraUniform};
 use crate::camera_controller::CameraController;
 use crate::instance::{Instance, InstanceRaw};
+use crate::model::{DrawModel, Model, ModelVertex, Vertex};
 use crate::texture::Texture;
-use crate::vertex::Vertex;
-use crate::EventPropagation;
+use crate::{resources, EventPropagation};
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::WindowEvent;
 use winit::window::Window;
-
-// A pentagon.
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        tex_coords: [0.4131759, 0.00759614],
-    }, // A
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        tex_coords: [0.0048659444, 0.43041354],
-    }, // B
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        tex_coords: [0.28081453, 0.949397],
-    }, // C
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        tex_coords: [0.85967, 0.84732914],
-    }, // D
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        tex_coords: [0.9414737, 0.2652641],
-    }, // E
-];
-
-const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
-
-const NUM_INSTANCES_PER_ROW: u32 = 10;
-const INSTANCE_DISPLACEMENT: Vector3<f32> = Vector3::new(
-    NUM_INSTANCES_PER_ROW as f32 * 0.5,
-    0.0,
-    NUM_INSTANCES_PER_ROW as f32 * 0.5,
-);
 
 pub(crate) struct State {
     /// The part of the [`Window`] that we draw to.
@@ -68,12 +35,6 @@ pub(crate) struct State {
     camera_bind_group: wgpu::BindGroup,
     /// How the GPU acts on a set of data.
     render_pipeline: wgpu::RenderPipeline,
-    /// Vertices to render.
-    vertex_buffer: wgpu::Buffer,
-    /// Indices into the [`vertex_buffer`] used to form triangles.
-    index_buffer: wgpu::Buffer,
-    /// How many vertices to render.
-    num_indices: u32,
     /// Binding the texture uniform to the shaders.
     diffuse_bind_group: wgpu::BindGroup,
     /// A texture to use in shaders.
@@ -87,6 +48,8 @@ pub(crate) struct State {
     instance_rotation_delta: f32,
     /// Used for depth-testing (z-culling) to render pixels in front of each other correctly.
     depth_texture: Texture,
+    /// The model to render.
+    obj_model: Model,
 }
 
 impl State {
@@ -236,18 +199,10 @@ impl State {
             &camera_bind_group_layout,
         );
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let num_indices = INDICES.len() as u32;
+        let obj_model =
+            resources::load_model("cube.obj", &device, &queue, &texture_bind_group_layout)
+                .await
+                .expect("cube.obj is always present due to build script");
 
         let offset = 0.0;
         let (instances, instance_buffer) = create_instances(&device, offset);
@@ -267,15 +222,13 @@ impl State {
             camera_buffer,
             camera_bind_group,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices,
             diffuse_bind_group,
             _diffuse_texture: diffuse_texture,
             instances,
             instance_buffer,
             instance_rotation_delta: 0.0,
             depth_texture,
+            obj_model,
         }
     }
 
@@ -346,10 +299,9 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            render_pass
+                .draw_mesh_instanced(&self.obj_model.meshes[0], 0..self.instances.len() as u32);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -360,14 +312,16 @@ impl State {
 }
 
 fn create_instances(device: &wgpu::Device, offset: f32) -> (Vec<Instance>, wgpu::Buffer) {
+    const NUM_INSTANCES_PER_ROW: u32 = 10;
+    const SPACE_BETWEEN: f32 = 3.0;
+
     let instances = (0..NUM_INSTANCES_PER_ROW)
         .flat_map(|z| {
             (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                let position = Vector3 {
-                    x: x as f32,
-                    y: 0.0,
-                    z: z as f32,
-                } - INSTANCE_DISPLACEMENT;
+                let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+                let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+
+                let position = Vector3 { x, y: 0.0, z };
 
                 let rotation = if position.is_zero() {
                     // This is needed so an object at (0, 0, 0) won't get scaled to zero
@@ -381,6 +335,7 @@ fn create_instances(device: &wgpu::Device, offset: f32) -> (Vec<Instance>, wgpu:
             })
         })
         .collect::<Vec<_>>();
+
     let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
     let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Instance Buffer"),
@@ -413,7 +368,7 @@ fn create_render_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[Vertex::descriptor(), InstanceRaw::descriptor()],
+            buffers: &[ModelVertex::descriptor(), InstanceRaw::descriptor()],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
