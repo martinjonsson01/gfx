@@ -159,7 +159,7 @@ fn calculate_tangents_bitangents(m: &tobj::Model, vertices: &mut Vec<ModelVertex
             vertices[triangle[vertex] as usize].bitangent =
                 (bitangent + Vector3::from(vertices[triangle[vertex] as usize].bitangent)).into();
             // Used to average the tangents/bitangents
-            triangles_included[triangle[0] as usize] += 1;
+            triangles_included[triangle[vertex] as usize] += 1;
         }
     }
 
