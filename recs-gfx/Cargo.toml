@@ -11,12 +11,13 @@ bench = false # Using Criterion means we don't need ordinary cargo bench
 winit = "0.27.5"        # For window creation
 env_logger = "0.10.0"   # Makes logging configurable via environment variables
 log = "0.4.17"          # For lightweight logging
-wgpu = "0.14.2"         # For GPU programming (interfaces with Vulkan, Metal, DX12 and Browser WebGPU)
+wgpu = "0.14.2"         # For GPU programming (interfaces with Vulkan, Metal, and D3D11/12)
 rayon = "1.6.1"         # For CPU parallelism
 num_cpus = "1.14.0"     # To get the number of CPU cores available
 bytemuck = { version = "1.4.1", features = ["derive"] }     # For casting to byte slices
 image = { version = "0.24.5", features = ["png", "jpeg"] }  # For loading of images
 anyhow = "1.0.67"       # For simple error handling
+thiserror = "1.0.38"    # Macros for generating error enums/structs
 cgmath = "0.18.0"       # For linear algebra
 tobj = { version = "3.2.3", features = ["async"] }          # For .obj model format loading
 

@@ -1574,6 +1574,7 @@ dependencies = [
  "log",
  "num_cpus",
  "rayon",
+ "thiserror",
  "tobj",
  "wgpu",
  "winit",

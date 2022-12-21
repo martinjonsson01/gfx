@@ -33,9 +33,11 @@ mod state;
 mod texture;
 
 use crate::camera::{Camera, Projection};
-use crate::state::State;
+use crate::state::{State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
+use log::error;
 use std::time::Instant;
+use thiserror::Error;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -85,25 +87,47 @@ impl CameraUniform {
     }
 }
 
+/// An error that has occurred within the graphics engine.
+#[derive(Error, Debug)]
+pub enum EngineError {
+    /// Could not construct root Window.
+    #[error("could not construct root Window")]
+    MissingRootWindow(#[source] winit::error::OsError),
+    /// Could not instantiate State.
+    #[error("could not instantiate State")]
+    StateConstruction(#[source] StateError),
+    /// Failed to render frame.
+    #[error("failed to render frame")]
+    Rendering(#[source] StateError),
+}
+
+type Result<T, E = EngineError> = std::result::Result<T, E>;
+
 /// Starts the graphics engine, opening a new window and rendering to it.
-pub async fn run() {
+pub async fn run() -> Result<EngineError> {
     env_logger::init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .build(&event_loop)
-        .expect("should be able to build a window");
+        .map_err(EngineError::MissingRootWindow)?;
 
-    let mut state = State::new(&window).await;
+    let mut state = State::new(&window)
+        .await
+        .map_err(EngineError::StateConstruction)?;
     let mut last_render_time = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
-        handle_events(
+        let result = handle_events(
             &window,
             &mut state,
             &mut last_render_time,
             event,
             control_flow,
-        )
+        );
+        if let Err(error) = result {
+            error!("{error}");
+            *control_flow = ControlFlow::ExitWithCode(1); // Non-zero exit code means error.
+        }
     });
 }
 
@@ -122,7 +146,7 @@ fn handle_events(
     last_render_time: &mut Instant,
     event: Event<()>,
     control_flow: &mut ControlFlow,
-) {
+) -> Result<()> {
     match event {
         Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually
@@ -157,15 +181,22 @@ fn handle_events(
             match state.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost.
-                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                Err(StateError::MissingOutputTexture(wgpu::SurfaceError::Lost)) => {
+                    state.resize(state.size)
+                }
                 // The system is out of memory, we should probably quit.
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                // All other errors (Outdated, Timeout) should be resolved by the next frame.
-                Err(error) => eprintln!("{error:?}"),
+                Err(StateError::MissingOutputTexture(wgpu::SurfaceError::OutOfMemory)) => {
+                    *control_flow = ControlFlow::Exit
+                }
+                // All other surface errors (Outdated, Timeout) should be resolved by the next frame.
+                Err(StateError::MissingOutputTexture(error)) => eprintln!("{error:?}"),
+                // Pass on any other rendering errors.
+                Err(error) => return Err(EngineError::Rendering(error)),
             }
         }
         _ => {}
-    }
+    };
+    Ok(())
 }
 
 fn handle_window_event(state: &mut State, control_flow: &mut ControlFlow, event: &WindowEvent) {

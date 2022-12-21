@@ -1,5 +1,6 @@
-use recs_gfx::run;
+use recs_gfx::{run, EngineError};
 
-fn main() {
-    pollster::block_on(run());
+fn main() -> Result<(), EngineError> {
+    pollster::block_on(run())?;
+    Ok(())
 }

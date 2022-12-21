@@ -6,9 +6,31 @@ use crate::{resources, CameraUniform, EventPropagation};
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
 use std::time::Duration;
+use thiserror::Error;
 use wgpu::util::DeviceExt;
+use wgpu::RequestDeviceError;
 use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
 use winit::window::Window;
+
+#[derive(Error, Debug)]
+pub enum StateError {
+    #[error("the window width can't be 0")]
+    WindowWidthZero,
+    #[error("the window height can't be 0")]
+    WindowHeightZero,
+    #[error("an adapter that matches the requirements can not be found")]
+    AdapterNotFound,
+    #[error("a device that matches the requirements can not be found")]
+    DeviceNotFound(#[source] RequestDeviceError),
+    #[error("the surface `{surface}` is not compatible with the available adapter `{adapter}`")]
+    SurfaceIncompatibleWithAdapter { surface: String, adapter: String },
+    #[error("failed to load model from path {1}")]
+    ModelLoad(#[source] anyhow::Error, String),
+    #[error("failed to get output texture")]
+    MissingOutputTexture(#[source] wgpu::SurfaceError),
+}
+
+type Result<T, E = StateError> = std::result::Result<T, E>;
 
 /// A point-light that emits light in every direction and has no area.
 #[repr(C)]
@@ -72,11 +94,15 @@ pub(crate) struct State {
 }
 
 impl State {
-    pub(crate) async fn new(window: &Window) -> Self {
+    pub(crate) async fn new(window: &Window) -> Result<Self> {
         let size = window.inner_size();
 
-        assert_ne!(size.width, 0, "can't render to zero-width area");
-        assert_ne!(size.height, 0, "can't render to zero-height area");
+        if size.width == 0 {
+            return Err(StateError::WindowWidthZero);
+        }
+        if size.height == 0 {
+            return Err(StateError::WindowHeightZero);
+        }
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
@@ -89,7 +115,7 @@ impl State {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("should be able to find adapter that accepts provided options");
+            .ok_or_else(|| StateError::AdapterNotFound)?;
 
         let (device, queue) = adapter
             .request_device(
@@ -107,14 +133,17 @@ impl State {
                 None,
             )
             .await
-            .expect("should be able to find device that matches descriptor");
+            .map_err(StateError::DeviceNotFound)?;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: *surface
                 .get_supported_formats(&adapter)
                 .first()
-                .expect("should support at least one format"),
+                .ok_or_else(|| StateError::SurfaceIncompatibleWithAdapter {
+                    surface: format!("{surface:?}"),
+                    adapter: format!("{adapter:?}"),
+                })?,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Mailbox, // Fast VSync
@@ -286,14 +315,14 @@ impl State {
         let obj_model =
             resources::load_model("cube.obj", &device, &queue, &texture_bind_group_layout)
                 .await
-                .expect("cube.obj is always present due to build script");
+                .map_err(|e| StateError::ModelLoad(e, "cube.obj".to_string()))?;
 
         let offset = 0.0;
         let (instances, instance_buffer) = create_instances(&device, offset);
 
         let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        Self {
+        Ok(Self {
             surface,
             device,
             queue,
@@ -317,7 +346,7 @@ impl State {
             light_bind_group,
             light_render_pipeline,
             mouse_pressed: false,
-        }
+        })
     }
 
     pub(crate) fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -392,8 +421,11 @@ impl State {
         );
     }
 
-    pub(crate) fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
+    pub(crate) fn render(&mut self) -> Result<()> {
+        let output = self
+            .surface
+            .get_current_texture()
+            .map_err(StateError::MissingOutputTexture)?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
