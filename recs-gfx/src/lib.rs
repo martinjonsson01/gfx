@@ -123,8 +123,6 @@ fn handle_events(
     event: Event<()>,
     control_flow: &mut ControlFlow,
 ) {
-    // Use polling to run
-    //*control_flow = ControlFlow::Poll;
     match event {
         Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually

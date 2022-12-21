@@ -117,7 +117,7 @@ impl State {
                 .expect("should support at least one format"),
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo, // VSync
+            present_mode: wgpu::PresentMode::Mailbox, // Fast VSync
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
         surface.configure(&device, &config);
@@ -371,7 +371,7 @@ impl State {
         );
 
         // Animate instance rotation
-        self.instance_rotation_delta += 0.1;
+        self.instance_rotation_delta += 10.0 * dt.as_secs_f32();
         let (instances, instance_buffer) =
             create_instances(&self.device, self.instance_rotation_delta);
         self.instances = instances;
