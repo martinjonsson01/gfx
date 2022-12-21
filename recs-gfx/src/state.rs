@@ -1,13 +1,13 @@
-use crate::camera::{Camera, CameraUniform};
-use crate::camera_controller::CameraController;
+use crate::camera::{Camera, CameraController, Projection};
 use crate::instance::{Instance, InstanceRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
 use crate::texture::Texture;
-use crate::{resources, EventPropagation};
+use crate::{resources, CameraUniform, EventPropagation};
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
+use std::time::Duration;
 use wgpu::util::DeviceExt;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
 use winit::window::Window;
 
 /// A point-light that emits light in every direction and has no area.
@@ -37,10 +37,13 @@ pub(crate) struct State {
     clear_color: wgpu::Color,
     /// The camera that views the scene.
     camera: Camera,
+    /// A description of the viewport to project onto.
+    projection: Projection,
     /// A controller for moving the camera around based on user input.
-    camera_controller: CameraController,
+    pub(crate) camera_controller: CameraController,
     /// The uniform-representation of the camera.
     camera_uniform: CameraUniform,
+    // UPDATED!
     /// The camera uniform buffer that can be sent to shaders.
     camera_buffer: wgpu::Buffer,
     /// Binding the camera uniform to the shaders.
@@ -64,6 +67,8 @@ pub(crate) struct State {
     light_bind_group: wgpu::BindGroup,
     /// How the GPU acts on lights.
     light_render_pipeline: wgpu::RenderPipeline,
+    /// Whether the mouse button is pressed or not.
+    pub(crate) mouse_pressed: bool,
 }
 
 impl State {
@@ -165,18 +170,11 @@ impl State {
             a: 1.0,
         };
 
-        let camera = Camera {
-            position: (0.0, 5.0, 2.0).into(),
-            target: (0.0, 0.0, 0.0).into(),
-            up: Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
-        let camera_controller = CameraController::new(0.2);
+        let camera = Camera::new((0.0, 5.0, 10.0), Deg(-90.0), Deg(-20.0));
+        let projection = Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
+        let camera_controller = CameraController::new(7.0, 1.0);
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_projection(&camera);
+        camera_uniform.update_view_projection(&camera, &projection);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -303,6 +301,7 @@ impl State {
             config,
             clear_color,
             camera,
+            projection,
             camera_controller,
             camera_uniform,
             camera_buffer,
@@ -317,6 +316,7 @@ impl State {
             light_buffer,
             light_bind_group,
             light_render_pipeline,
+            mouse_pressed: false,
         }
     }
 
@@ -328,16 +328,42 @@ impl State {
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
                 Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+
+            self.projection.resize(new_size.width, new_size.height);
         }
     }
 
     pub(crate) fn input(&mut self, event: &WindowEvent) -> EventPropagation {
-        self.camera_controller.process_events(event)
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(key),
+                        state,
+                        ..
+                    },
+                ..
+            } => self.camera_controller.process_keyboard(*key, *state),
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                EventPropagation::Consume
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.mouse_pressed = *state == ElementState::Pressed;
+                EventPropagation::Consume
+            }
+            _ => EventPropagation::Propagate,
+        }
     }
 
-    pub(crate) fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_view_projection(&self.camera);
+    pub(crate) fn update(&mut self, dt: Duration) {
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera_uniform
+            .update_view_projection(&self.camera, &self.projection);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -352,9 +378,13 @@ impl State {
         self.instance_buffer = instance_buffer;
 
         // Animate light rotation
+        const DEGREES_PER_SECOND: f32 = 60.0;
         let old_position: Vector3<_> = self.light_uniform.position.into();
-        self.light_uniform.position =
-            (Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), Deg(1.0)) * old_position).into();
+        let rotation = Quaternion::from_axis_angle(
+            Vector3::unit_y(),
+            Deg(DEGREES_PER_SECOND * dt.as_secs_f32()),
+        );
+        self.light_uniform.position = (rotation * old_position).into();
         self.queue.write_buffer(
             &self.light_buffer,
             0,

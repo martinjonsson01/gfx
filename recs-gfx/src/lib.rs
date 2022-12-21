@@ -26,14 +26,16 @@
 )]
 
 mod camera;
-mod camera_controller;
 mod instance;
 mod model;
 mod resources;
 mod state;
 mod texture;
 
+use crate::camera::{Camera, Projection};
 use crate::state::State;
+use cgmath::{Matrix4, SquareMatrix};
+use std::time::Instant;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -59,6 +61,30 @@ mod shader_locations {
     pub const INSTANCE_NORMAL_MATRIX_COLUMN_2: ShaderLocation = 11;
 }
 
+/// A representation of the [`Camera`] that can be sent into shaders through a uniform buffer.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    /// The world-space location of the camera.
+    view_position: [f32; 4],
+    /// Transformation matrix that transforms from world space to view space to clip space.
+    view_projection: [[f32; 4]; 4],
+}
+
+impl CameraUniform {
+    pub fn new() -> Self {
+        Self {
+            view_position: [0.0; 4],
+            view_projection: Matrix4::identity().into(),
+        }
+    }
+
+    pub fn update_view_projection(&mut self, camera: &Camera, projection: &Projection) {
+        self.view_position = camera.position.to_homogeneous().into();
+        self.view_projection = (projection.perspective_matrix() * camera.view_matrix()).into();
+    }
+}
+
 /// Starts the graphics engine, opening a new window and rendering to it.
 pub async fn run() {
     env_logger::init();
@@ -68,9 +94,17 @@ pub async fn run() {
         .expect("should be able to build a window");
 
     let mut state = State::new(&window).await;
+    let mut last_render_time = Instant::now();
 
-    event_loop
-        .run(move |event, _, control_flow| handle_events(&window, &mut state, event, control_flow));
+    event_loop.run(move |event, _, control_flow| {
+        handle_events(
+            &window,
+            &mut state,
+            &mut last_render_time,
+            event,
+            control_flow,
+        )
+    });
 }
 
 /// Whether an event should continue to propagate, or be consumed.
@@ -85,10 +119,26 @@ pub(crate) enum EventPropagation {
 fn handle_events(
     window: &Window,
     state: &mut State,
+    last_render_time: &mut Instant,
     event: Event<()>,
     control_flow: &mut ControlFlow,
 ) {
+    // Use polling to run
+    //*control_flow = ControlFlow::Poll;
     match event {
+        Event::MainEventsCleared => {
+            // RedrawRequested will only trigger once, unless we manually
+            // request it.
+            window.request_redraw();
+        }
+        Event::DeviceEvent {
+            event: DeviceEvent::MouseMotion { delta },
+            ..
+        } => {
+            if state.mouse_pressed {
+                state.camera_controller.process_mouse(delta.0, delta.1)
+            }
+        }
         Event::WindowEvent {
             ref event,
             window_id,
@@ -100,7 +150,12 @@ fn handle_events(
             }
         }
         Event::RedrawRequested(window_id) if window_id == window.id() => {
-            state.update();
+            let now = Instant::now();
+            let delta_time = now - *last_render_time;
+            *last_render_time = now;
+
+            state.update(delta_time);
+
             match state.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost.
@@ -110,11 +165,6 @@ fn handle_events(
                 // All other errors (Outdated, Timeout) should be resolved by the next frame.
                 Err(error) => eprintln!("{error:?}"),
             }
-        }
-        Event::MainEventsCleared => {
-            // RedrawRequested will only trigger once, unless we manually
-            // request it.
-            window.request_redraw();
         }
         _ => {}
     }
