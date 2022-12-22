@@ -77,8 +77,13 @@ fn vs_main(
     return out;
 }
 
+struct MaterialUniform {
+    diffuse_color: vec3<f32>,
+    has_diffuse_texture: i32,
+};
 @group(0) @binding(0)
-var<uniform> diffuse_color: vec3<f32>;
+var<uniform> material: MaterialUniform;
+
 @group(0) @binding(1)
 var t_diffuse: texture_2d<f32>;
 @group(0) @binding(2)
@@ -90,7 +95,6 @@ var s_normal: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let texture_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.tex_coords);
 
     let ambient_strength = 0.1;
@@ -107,8 +111,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
     let specular_term = specular_strength * light.color;
 
-    let base_color = diffuse_color * texture_color.xyz;
+    var base_color = material.diffuse_color;
+    if (material.has_diffuse_texture == 1) {
+        base_color *= textureSample(t_diffuse, s_diffuse, in.tex_coords).xyz;
+    }
+
     let result = (ambient_term + diffuse_term + specular_term) * base_color;
 
-    return vec4<f32>(result, texture_color.a);
+    return vec4<f32>(result, 1.0);
 }

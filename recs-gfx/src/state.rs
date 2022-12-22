@@ -2,7 +2,7 @@ use crate::camera::{Camera, CameraController, Projection};
 use crate::instance::{Instance, InstanceRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
 use crate::shader_locations::{
-    FRAGMENT_DIFFUSE_COLOR, FRAGMENT_DIFFUSE_SAMPLER, FRAGMENT_DIFFUSE_TEXTURE,
+    FRAGMENT_DIFFUSE_SAMPLER, FRAGMENT_DIFFUSE_TEXTURE, FRAGMENT_MATERIAL_UNIFORM,
     FRAGMENT_NORMAL_SAMPLER, FRAGMENT_NORMAL_TEXTURE,
 };
 use crate::state::StateError::ModelLoad;
@@ -42,10 +42,8 @@ type Result<T, E = StateError> = std::result::Result<T, E>;
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct PointLightUniform {
     position: [f32; 3],
-    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here.
     _padding: u32,
     color: [f32; 3],
-    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here.
     _padding2: u32,
 }
 
@@ -161,7 +159,7 @@ impl State {
                 entries: &[
                     // Diffuse color.
                     wgpu::BindGroupLayoutEntry {
-                        binding: FRAGMENT_DIFFUSE_COLOR,
+                        binding: FRAGMENT_MATERIAL_UNIFORM,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,

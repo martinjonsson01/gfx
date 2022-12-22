@@ -16,8 +16,8 @@ pub struct Model {
 pub struct Material {
     pub name: String,
     pub diffuse_color: Vector3<f32>,
-    pub diffuse_color_buffer: Buffer,
-    pub diffuse_texture: Texture,
+    pub material_buffer: Buffer,
+    pub diffuse_texture: Option<Texture>,
     /// A normal map, where r, g and b map to x, y and z of the normals.
     pub normal_texture: Texture,
     pub bind_group: BindGroup,
@@ -28,22 +28,33 @@ impl Material {
         device: &wgpu::Device,
         name: &str,
         diffuse_color: [f32; 3],
-        diffuse_texture: Texture,
+        diffuse_texture: Option<Texture>,
         normal_texture: Texture,
         layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let diffuse_color_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Diffuse Color Buffer"),
-            contents: bytemuck::cast_slice(&diffuse_color),
+        let material_uniform =
+            MaterialUniform::new(diffuse_color, diffuse_texture.is_some().into());
+        let material_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Material Buffer"),
+            contents: bytemuck::cast_slice(&[material_uniform]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: FRAGMENT_DIFFUSE_COLOR,
-                    resource: diffuse_color_buffer.as_entire_binding(),
-                },
+        let mut bind_group_entries = vec![
+            wgpu::BindGroupEntry {
+                binding: FRAGMENT_MATERIAL_UNIFORM,
+                resource: material_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: FRAGMENT_NORMAL_TEXTURE,
+                resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+            },
+            wgpu::BindGroupEntry {
+                binding: FRAGMENT_NORMAL_SAMPLER,
+                resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
+            },
+        ];
+        if let Some(diffuse_texture) = &diffuse_texture {
+            bind_group_entries.append(&mut vec![
                 wgpu::BindGroupEntry {
                     binding: FRAGMENT_DIFFUSE_TEXTURE,
                     resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
@@ -52,25 +63,38 @@ impl Material {
                     binding: FRAGMENT_DIFFUSE_SAMPLER,
                     resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: FRAGMENT_NORMAL_TEXTURE,
-                    resource: wgpu::BindingResource::TextureView(&normal_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: FRAGMENT_NORMAL_SAMPLER,
-                    resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
-                },
-            ],
+            ])
+        }
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &bind_group_entries,
             label: Some(name),
         });
 
         Self {
             name: String::from(name),
             diffuse_color: diffuse_color.into(),
-            diffuse_color_buffer,
+            material_buffer,
             diffuse_texture,
             normal_texture,
             bind_group,
+        }
+    }
+}
+
+/// A representation of a [`Material`] that can be sent into shaders through a uniform buffer.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct MaterialUniform {
+    diffuse_color: [f32; 3],
+    has_diffuse_texture: i32,
+}
+
+impl MaterialUniform {
+    pub fn new(diffuse_color: [f32; 3], has_diffuse_texture: i32) -> Self {
+        Self {
+            diffuse_color,
+            has_diffuse_texture,
         }
     }
 }

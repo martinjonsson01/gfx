@@ -57,7 +57,7 @@ mod shader_locations {
     pub const VERTEX_TANGENT: ShaderLocation = 3;
     pub const VERTEX_BITANGENT: ShaderLocation = 4;
 
-    pub const FRAGMENT_DIFFUSE_COLOR: ShaderLocation = 0;
+    pub const FRAGMENT_MATERIAL_UNIFORM: ShaderLocation = 0;
     pub const FRAGMENT_DIFFUSE_TEXTURE: ShaderLocation = 1;
     pub const FRAGMENT_DIFFUSE_SAMPLER: ShaderLocation = 2;
     pub const FRAGMENT_NORMAL_TEXTURE: ShaderLocation = 3;
