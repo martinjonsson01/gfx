@@ -1,6 +1,7 @@
 use crate::camera::{Camera, CameraController, Projection};
 use crate::instance::{Instance, InstanceRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
+use crate::state::StateError::ModelLoad;
 use crate::texture::Texture;
 use crate::{resources, CameraUniform, EventPropagation};
 use cgmath::prelude::*;
@@ -24,8 +25,8 @@ pub enum StateError {
     DeviceNotFound(#[source] RequestDeviceError),
     #[error("the surface `{surface}` is not compatible with the available adapter `{adapter}`")]
     SurfaceIncompatibleWithAdapter { surface: String, adapter: String },
-    #[error("failed to load model from path `{1}`")]
-    ModelLoad(#[source] anyhow::Error, String),
+    #[error("failed to load model from path")]
+    ModelLoad(#[source] resources::LoadError),
     #[error("failed to get output texture")]
     MissingOutputTexture(#[source] wgpu::SurfaceError),
 }
@@ -317,7 +318,7 @@ impl State {
         let obj_model =
             resources::load_model(file_name, &device, &queue, &texture_bind_group_layout)
                 .await
-                .map_err(|e| StateError::ModelLoad(e, file_name.to_string()))?;
+                .map_err(ModelLoad)?;
 
         let offset = 0.0;
         let (instances, instance_buffer) = create_instances(&device, offset);

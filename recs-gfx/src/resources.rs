@@ -1,22 +1,51 @@
 use crate::model::{Material, Mesh, Model, ModelVertex};
 use crate::texture::Texture;
 use cgmath::{Vector2, Vector3};
+use std::io;
 use std::io::{BufReader, Cursor};
+use thiserror::Error;
 use wgpu::util::DeviceExt;
 
-pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
+#[derive(Error, Debug)]
+pub enum LoadError {
+    #[error("failed to load string from path `{1}`")]
+    String(#[source] io::Error, String),
+    #[error("failed to load texture from bytes")]
+    Texture(#[source] anyhow::Error),
+    #[error("failed to load bytes from binary file at path `{1}`")]
+    Binary(#[source] io::Error, String),
+    #[error("failed to load meshes from OBJ buffer")]
+    Mesh(#[source] tobj::LoadError),
+    #[error("failed to load materials from OBJ buffer")]
+    Materials(#[source] tobj::LoadError),
+}
+
+type Result<T, E = LoadError> = std::result::Result<T, E>;
+
+impl LoadError {
+    fn into_tobj_error(self) -> Option<tobj::LoadError> {
+        match self {
+            LoadError::Mesh(error) => Some(error),
+            LoadError::Materials(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+pub async fn load_string(file_name: &str) -> Result<String> {
     let path = std::path::Path::new(env!("OUT_DIR"))
         .join("res")
         .join(file_name);
-    let txt = std::fs::read_to_string(path)?;
+    let txt =
+        std::fs::read_to_string(path).map_err(|e| LoadError::String(e, file_name.to_string()))?;
     Ok(txt)
 }
 
-pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
+pub async fn load_binary(file_name: &str) -> Result<Vec<u8>> {
     let path = std::path::Path::new(env!("OUT_DIR"))
         .join("res")
         .join(file_name);
-    let data = std::fs::read(path)?;
+    let data = std::fs::read(path).map_err(|e| LoadError::Binary(e, file_name.to_string()))?;
     Ok(data)
 }
 
@@ -25,9 +54,9 @@ pub async fn load_texture(
     is_normal_map: bool,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-) -> anyhow::Result<Texture> {
+) -> Result<Texture> {
     let data = load_binary(file_name).await?;
-    Texture::from_bytes(device, queue, &data, file_name, is_normal_map)
+    Texture::from_bytes(device, queue, &data, file_name, is_normal_map).map_err(LoadError::Texture)
 }
 
 pub async fn load_model(
@@ -35,29 +64,27 @@ pub async fn load_model(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
-) -> anyhow::Result<Model> {
+) -> Result<Model> {
     let obj_text = load_string(file_name).await?;
     let obj_cursor = Cursor::new(obj_text);
     let mut obj_reader = BufReader::new(obj_cursor);
 
     let (models, obj_materials) = tobj::load_obj_buf_async(
         &mut obj_reader,
-        &tobj::LoadOptions {
-            triangulate: true,
-            single_index: true,
-            ..Default::default()
-        },
+        &tobj::GPU_LOAD_OPTIONS,
         |material_name| async move {
-            let mat_text = load_string(&material_name)
-                .await
-                .expect("materials for cube are always present due to build script");
+            let mat_text = load_string(&material_name).await.map_err(|e| {
+                e.into_tobj_error()
+                    .expect("LoadError::String can always be converted into tobj::Error")
+            })?;
             tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
         },
     )
-    .await?;
+    .await
+    .map_err(LoadError::Mesh)?;
 
     let mut materials = Vec::new();
-    for m in obj_materials? {
+    for m in obj_materials.map_err(LoadError::Materials)? {
         let diffuse_texture = load_texture(&m.diffuse_texture, false, device, queue).await?;
         let normal_texture = load_texture(&m.normal_texture, true, device, queue).await?;
 
