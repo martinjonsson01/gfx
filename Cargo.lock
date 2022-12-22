@@ -619,6 +619,7 @@ dependencies = [
 name = "example-app"
 version = "0.1.0"
 dependencies = [
+ "log",
  "pollster",
  "recs-gfx",
 ]

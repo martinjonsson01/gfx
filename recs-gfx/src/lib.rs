@@ -36,6 +36,7 @@ use crate::camera::{Camera, Projection};
 use crate::state::{State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
 use log::error;
+use std::error::Error;
 use std::time::Instant;
 use thiserror::Error;
 use winit::window::Window;
@@ -125,10 +126,19 @@ pub async fn run() -> Result<EngineError> {
             control_flow,
         );
         if let Err(error) = result {
-            error!("{error}");
+            print_error(&error, false, 0);
             *control_flow = ControlFlow::ExitWithCode(1); // Non-zero exit code means error.
         }
     });
+}
+
+fn print_error(error: &dyn Error, is_source: bool, indent_level: usize) {
+    let indents = "  ".repeat(indent_level);
+    let due_to = if is_source { "caused by: " } else { "" };
+    error!("{indents}{due_to}{error}");
+    if let Some(source) = error.source() {
+        print_error(source, true, indent_level + 1);
+    }
 }
 
 /// Whether an event should continue to propagate, or be consumed.

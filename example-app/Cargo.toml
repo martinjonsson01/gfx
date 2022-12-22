@@ -7,3 +7,4 @@ authors = ["Martin Jonsson <martinjonsson01@gmail.com>"]
 [dependencies]
 recs-gfx = { path = "../recs-gfx" }     # For graphics
 pollster = "0.2"                        # To be able to await the recs-gfx run future
+log = "0.4.17"                          # For lightweight logging
