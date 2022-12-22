@@ -1,8 +1,10 @@
 use crate::shader_locations::*;
 use crate::texture::Texture;
+use cgmath::Vector3;
 use std::mem::size_of;
 use std::ops::Range;
-use wgpu::BindGroup;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{BindGroup, Buffer, BufferUsages};
 
 /// A 3D model representing a visible object.
 pub struct Model {
@@ -13,6 +15,8 @@ pub struct Model {
 /// A description of how a [`Mesh`] looks.
 pub struct Material {
     pub name: String,
+    pub diffuse_color: Vector3<f32>,
+    pub diffuse_color_buffer: Buffer,
     pub diffuse_texture: Texture,
     /// A normal map, where r, g and b map to x, y and z of the normals.
     pub normal_texture: Texture,
@@ -23,27 +27,37 @@ impl Material {
     pub fn new(
         device: &wgpu::Device,
         name: &str,
+        diffuse_color: [f32; 3],
         diffuse_texture: Texture,
         normal_texture: Texture,
         layout: &wgpu::BindGroupLayout,
     ) -> Self {
+        let diffuse_color_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Diffuse Color Buffer"),
+            contents: bytemuck::cast_slice(&diffuse_color),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
                 wgpu::BindGroupEntry {
-                    binding: 0,
+                    binding: FRAGMENT_DIFFUSE_COLOR,
+                    resource: diffuse_color_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: FRAGMENT_DIFFUSE_TEXTURE,
                     resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 1,
+                    binding: FRAGMENT_DIFFUSE_SAMPLER,
                     resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
+                    binding: FRAGMENT_NORMAL_TEXTURE,
                     resource: wgpu::BindingResource::TextureView(&normal_texture.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: FRAGMENT_NORMAL_SAMPLER,
                     resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
                 },
             ],
@@ -52,6 +66,8 @@ impl Material {
 
         Self {
             name: String::from(name),
+            diffuse_color: diffuse_color.into(),
+            diffuse_color_buffer,
             diffuse_texture,
             normal_texture,
             bind_group,
@@ -62,8 +78,8 @@ impl Material {
 /// The geometry of an object, composed of discrete vertices.
 pub struct Mesh {
     pub name: String,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub vertex_buffer: Buffer,
+    pub index_buffer: Buffer,
     /// The number of indices present.
     pub num_elements: u32,
     /// An index into the [`materials`] list in the [`Model`].

@@ -78,21 +78,23 @@ fn vs_main(
 }
 
 @group(0) @binding(0)
-var t_diffuse: texture_2d<f32>;
+var<uniform> diffuse_color: vec3<f32>;
 @group(0) @binding(1)
+var t_diffuse: texture_2d<f32>;
+@group(0) @binding(2)
 var s_diffuse: sampler;
-@group(0)@binding(2)
+@group(0)@binding(3)
 var t_normal: texture_2d<f32>;
-@group(0) @binding(3)
+@group(0) @binding(4)
 var s_normal: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let texture_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.tex_coords);
 
     let ambient_strength = 0.1;
-    let ambient_color = light.color * ambient_strength;
+    let ambient_term = light.color * ambient_strength;
 
     let tangent_normal = object_normal.xyz * 2.0 - 1.0;
     let light_dir = normalize(in.tangent_light_position - in.tangent_position);
@@ -100,12 +102,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let half_dir = normalize(view_dir + light_dir);
 
     let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
-    let diffuse_color = light.color * diffuse_strength;
+    let diffuse_term = light.color * diffuse_strength;
 
     let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
-    let specular_color = specular_strength * light.color;
+    let specular_term = specular_strength * light.color;
 
-    let result = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
+    let base_color = diffuse_color * texture_color.xyz;
+    let result = (ambient_term + diffuse_term + specular_term) * base_color;
 
-    return vec4<f32>(result, object_color.a);
+    return vec4<f32>(result, texture_color.a);
 }

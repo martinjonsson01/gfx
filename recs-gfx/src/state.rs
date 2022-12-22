@@ -1,6 +1,10 @@
 use crate::camera::{Camera, CameraController, Projection};
 use crate::instance::{Instance, InstanceRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
+use crate::shader_locations::{
+    FRAGMENT_DIFFUSE_COLOR, FRAGMENT_DIFFUSE_SAMPLER, FRAGMENT_DIFFUSE_TEXTURE,
+    FRAGMENT_NORMAL_SAMPLER, FRAGMENT_NORMAL_TEXTURE,
+};
 use crate::state::StateError::ModelLoad;
 use crate::texture::Texture;
 use crate::{resources, CameraUniform, EventPropagation};
@@ -66,7 +70,6 @@ pub(crate) struct State {
     pub(crate) camera_controller: CameraController,
     /// The uniform-representation of the camera.
     camera_uniform: CameraUniform,
-    // UPDATED!
     /// The camera uniform buffer that can be sent to shaders.
     camera_buffer: wgpu::Buffer,
     /// Binding the camera uniform to the shaders.
@@ -156,9 +159,20 @@ impl State {
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    // Texture.
+                    // Diffuse color.
                     wgpu::BindGroupLayoutEntry {
-                        binding: 0,
+                        binding: FRAGMENT_DIFFUSE_COLOR,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    // Diffuse texture.
+                    wgpu::BindGroupLayoutEntry {
+                        binding: FRAGMENT_DIFFUSE_TEXTURE,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
@@ -168,14 +182,14 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 1,
+                        binding: FRAGMENT_DIFFUSE_SAMPLER,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     // Normal map.
                     wgpu::BindGroupLayoutEntry {
-                        binding: 2,
+                        binding: FRAGMENT_NORMAL_TEXTURE,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
@@ -185,7 +199,7 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 3,
+                        binding: FRAGMENT_NORMAL_SAMPLER,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,

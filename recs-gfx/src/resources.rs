@@ -93,6 +93,7 @@ pub async fn load_model(
         materials.push(Material::new(
             device,
             &m.name,
+            m.diffuse,
             diffuse_texture,
             normal_texture,
             layout,
