@@ -1,18 +1,31 @@
-use log::error;
+use color_eyre::Report;
 use recs_gfx::run;
-use std::error::Error;
+use tracing::{info_span, instrument};
 
-fn main() {
-    if let Err(error) = pollster::block_on(run()) {
-        print_error(&error, false, 0);
-    }
+#[instrument]
+fn main() -> Result<(), Report> {
+    install_tracing()?;
+
+    color_eyre::install()?;
+
+    info_span!("gfx").in_scope(|| pollster::block_on(run()))?;
+
+    Ok(())
 }
 
-fn print_error(error: &dyn Error, is_source: bool, indent_level: usize) {
-    let indents = "  ".repeat(indent_level);
-    let due_to = if is_source { "caused by: " } else { "" };
-    error!("{indents}{due_to}{error}");
-    if let Some(source) = error.source() {
-        print_error(source, true, indent_level + 1);
-    }
+fn install_tracing() -> Result<(), Report> {
+    use tracing_error::ErrorLayer;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let fmt_layer = fmt::layer().with_target(false);
+    let filter_layer = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("warn"))?;
+
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .with(ErrorLayer::default())
+        .init();
+
+    Ok(())
 }

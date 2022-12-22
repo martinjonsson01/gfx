@@ -9,3 +9,7 @@ members = [
 
 [profile.release]
 debug = true # Include debug symbols in release binaries
+
+# Need to enable optimizations for backtrace, so that it doesn't take long to capture backtraces.
+[profile.dev.package.backtrace]
+opt-level = 3

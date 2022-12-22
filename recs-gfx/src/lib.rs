@@ -35,10 +35,10 @@ mod texture;
 use crate::camera::{Camera, Projection};
 use crate::state::{State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
-use log::error;
 use std::error::Error;
 use std::time::Instant;
 use thiserror::Error;
+use tracing::{error, instrument};
 use winit::window::Window;
 use winit::{
     event::*,
@@ -105,8 +105,8 @@ pub enum EngineError {
 type Result<T, E = EngineError> = std::result::Result<T, E>;
 
 /// Starts the graphics engine, opening a new window and rendering to it.
+#[instrument]
 pub async fn run() -> Result<EngineError> {
-    env_logger::init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .build(&event_loop)
