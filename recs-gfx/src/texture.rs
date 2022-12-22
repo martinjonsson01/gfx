@@ -1,5 +1,13 @@
-use anyhow::*;
 use image::GenericImageView;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum TextureError {
+    #[error("failed to load texture from bytes")]
+    LoadBytes(#[source] image::ImageError),
+}
+
+type TextureResult<T, E = TextureError> = Result<T, E>;
 
 /// How many bytes a pixel in an 8-bit texture contains. (1 byte for r, g, b and a)
 const RGBA_U8_BYTES: u32 = 4;
@@ -17,8 +25,8 @@ impl Texture {
         bytes: &[u8],
         label: &str,
         is_normal_map: bool,
-    ) -> Result<Self> {
-        let img = image::load_from_memory(bytes)?;
+    ) -> TextureResult<Self> {
+        let img = image::load_from_memory(bytes).map_err(TextureError::LoadBytes)?;
         Self::from_image(device, queue, &img, Some(label), is_normal_map)
     }
 
@@ -28,7 +36,7 @@ impl Texture {
         img: &image::DynamicImage,
         label: Option<&str>,
         is_normal_map: bool,
-    ) -> Result<Self> {
+    ) -> TextureResult<Self> {
         let rgba = img.to_rgba8();
         let dimensions = img.dimensions();
 

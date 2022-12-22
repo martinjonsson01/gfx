@@ -25,8 +25,8 @@ pub enum StateError {
     DeviceNotFound(#[source] RequestDeviceError),
     #[error("the surface `{surface}` is not compatible with the available adapter `{adapter}`")]
     SurfaceIncompatibleWithAdapter { surface: String, adapter: String },
-    #[error("failed to load model from path")]
-    ModelLoad(#[source] resources::LoadError),
+    #[error("failed to load model from path `{1}`")]
+    ModelLoad(#[source] resources::LoadError, String),
     #[error("failed to get output texture")]
     MissingOutputTexture(#[source] wgpu::SurfaceError),
 }
@@ -318,7 +318,7 @@ impl State {
         let obj_model =
             resources::load_model(file_name, &device, &queue, &texture_bind_group_layout)
                 .await
-                .map_err(ModelLoad)?;
+                .map_err(|e| ModelLoad(e, file_name.to_string()))?;
 
         let offset = 0.0;
         let (instances, instance_buffer) = create_instances(&device, offset);

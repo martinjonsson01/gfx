@@ -1,4 +1,5 @@
 use crate::model::{Material, Mesh, Model, ModelVertex};
+use crate::texture;
 use crate::texture::Texture;
 use cgmath::{Vector2, Vector3};
 use std::io;
@@ -10,8 +11,8 @@ use wgpu::util::DeviceExt;
 pub enum LoadError {
     #[error("failed to load string from path `{1}`")]
     String(#[source] io::Error, String),
-    #[error("failed to load texture from bytes")]
-    Texture(#[source] anyhow::Error),
+    #[error("failed to load texture at path `{1}`")]
+    Texture(#[source] texture::TextureError, String),
     #[error("failed to load bytes from binary file at path `{1}`")]
     Binary(#[source] io::Error, String),
     #[error("failed to load meshes from OBJ buffer")]
@@ -56,7 +57,8 @@ pub async fn load_texture(
     queue: &wgpu::Queue,
 ) -> Result<Texture> {
     let data = load_binary(file_name).await?;
-    Texture::from_bytes(device, queue, &data, file_name, is_normal_map).map_err(LoadError::Texture)
+    Texture::from_bytes(device, queue, &data, file_name, is_normal_map)
+        .map_err(|e| LoadError::Texture(e, file_name.to_string()))
 }
 
 pub async fn load_model(
