@@ -35,10 +35,12 @@ mod texture;
 use crate::camera::{Camera, Projection};
 use crate::state::{State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
-use std::error::Error;
+use color_eyre::Report;
 use std::time::Instant;
 use thiserror::Error;
+use tracing::dispatcher::DefaultGuard;
 use tracing::{error, instrument};
+use tracing_subscriber::filter::ParseError;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -100,13 +102,18 @@ pub enum EngineError {
     /// Failed to render frame.
     #[error("failed to render frame")]
     Rendering(#[source] StateError),
+    /// Could not create event filter from environment variable.
+    #[error("could not create event filter from environment variable")]
+    EnvironmentEventFilter(#[source] ParseError),
 }
 
 type Result<T, E = EngineError> = std::result::Result<T, E>;
 
 /// Starts the graphics engine, opening a new window and rendering to it.
 #[instrument]
-pub async fn run() -> Result<EngineError> {
+pub async fn run() -> Result<()> {
+    let _guard = install_tracing()?;
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .build(&event_loop)
@@ -126,19 +133,29 @@ pub async fn run() -> Result<EngineError> {
             control_flow,
         );
         if let Err(error) = result {
-            print_error(&error, false, 0);
+            let report = Report::new(error);
+            error!("{report:?}");
             *control_flow = ControlFlow::ExitWithCode(1); // Non-zero exit code means error.
         }
     });
 }
 
-fn print_error(error: &dyn Error, is_source: bool, indent_level: usize) {
-    let indents = "  ".repeat(indent_level);
-    let due_to = if is_source { "caused by: " } else { "" };
-    error!("{indents}{due_to}{error}");
-    if let Some(source) = error.source() {
-        print_error(source, true, indent_level + 1);
-    }
+fn install_tracing() -> Result<DefaultGuard> {
+    use tracing_error::ErrorLayer;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let fmt_layer = fmt::layer().with_target(true);
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("warn"))
+        .map_err(EngineError::EnvironmentEventFilter)?;
+
+    let subscriber = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .with(ErrorLayer::default());
+
+    Ok(tracing::subscriber::set_default(subscriber))
 }
 
 /// Whether an event should continue to propagate, or be consumed.
@@ -201,7 +218,7 @@ fn handle_events(
                 // All other surface errors (Outdated, Timeout) should be resolved by the next frame.
                 Err(StateError::MissingOutputTexture(error)) => eprintln!("{error:?}"),
                 // Pass on any other rendering errors.
-                Err(error) => return Err(EngineError::Rendering(error)),
+                Err(error) => return Err(EngineError::Rendering(error))?,
             }
         }
         _ => {}

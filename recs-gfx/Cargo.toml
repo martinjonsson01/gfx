@@ -9,7 +9,10 @@ bench = false # Using Criterion means we don't need ordinary cargo bench
 
 [dependencies]
 winit = "0.27.5"        # For window creation
-tracing = "0.1.37"      # For instrumenting to collect scoped, structured, and async-aware diagnostics
+tracing = "0.1.37"                      # For instrumenting to collect scoped, structured, and async-aware diagnostics
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] } # Tools for composing subscribers (to collect tracing data)
+tracing-error = "0.2.0"                 # Enriches error handling with tracing diagnostic information
+color-eyre = "0.6.2"                    # For pretty-printed error logging and tracing
 wgpu = "0.14.2"         # For GPU programming (interfaces with Vulkan, Metal, and D3D11/12)
 rayon = "1.6.1"         # For CPU parallelism
 num_cpus = "1.14.0"     # To get the number of CPU cores available
