@@ -1,4 +1,4 @@
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView, Rgb, RgbImage};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,27 +13,38 @@ type TextureResult<T, E = TextureError> = Result<T, E>;
 const RGBA_U8_BYTES: u32 = 4;
 
 pub struct Texture {
-    pub _texture: wgpu::Texture,
+    _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
 
 impl Texture {
+    pub(crate) fn from_pixel(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        pixel: Rgb<u8>,
+        label: Option<&str>,
+    ) -> TextureResult<Texture> {
+        let rgb = RgbImage::from_pixel(1, 1, pixel);
+        let image = DynamicImage::ImageRgb8(rgb);
+        Texture::from_image(device, queue, &image, label, true)
+    }
+
     pub(crate) fn from_bytes(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         bytes: &[u8],
-        label: &str,
+        label: Option<&str>,
         is_normal_map: bool,
     ) -> TextureResult<Self> {
         let img = image::load_from_memory(bytes).map_err(TextureError::LoadBytes)?;
-        Self::from_image(device, queue, &img, Some(label), is_normal_map)
+        Self::from_image(device, queue, &img, label, is_normal_map)
     }
 
     pub(crate) fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        img: &image::DynamicImage,
+        img: &DynamicImage,
         label: Option<&str>,
         is_normal_map: bool,
     ) -> TextureResult<Self> {

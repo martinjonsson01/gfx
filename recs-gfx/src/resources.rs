@@ -2,10 +2,12 @@ use crate::model::{Material, Mesh, Model, ModelVertex};
 use crate::texture;
 use crate::texture::Texture;
 use cgmath::{Vector2, Vector3};
+use image::Rgb;
 use std::io;
 use std::io::{BufReader, Cursor};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
+use wgpu::{Device, Queue};
 
 #[derive(Error, Debug)]
 pub enum LoadError {
@@ -53,18 +55,18 @@ pub async fn load_binary(file_name: &str) -> Result<Vec<u8>> {
 pub async fn load_texture(
     file_name: &str,
     is_normal_map: bool,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    device: &Device,
+    queue: &Queue,
 ) -> Result<Texture> {
     let data = load_binary(file_name).await?;
-    Texture::from_bytes(device, queue, &data, file_name, is_normal_map)
+    Texture::from_bytes(device, queue, &data, Some(file_name), is_normal_map)
         .map_err(|e| LoadError::Texture(e, file_name.to_string()))
 }
 
 pub async fn load_model(
     file_name: &str,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    device: &Device,
+    queue: &Queue,
     layout: &wgpu::BindGroupLayout,
 ) -> Result<Model> {
     let obj_text = load_string(file_name).await?;
@@ -92,10 +94,20 @@ pub async fn load_model(
         } else {
             Some(load_texture(&m.diffuse_texture, false, device, queue).await?)
         };
-        let normal_texture = load_texture(&m.normal_texture, true, device, queue).await?;
+        let normal_texture = if m.normal_texture.is_empty() {
+            // If no custom normal map is present, use a single-pixel normal map, as this is the
+            // same as performing no normal-mapping at all (uses per-vertex normals instead).
+            // (128, 128, 255) maps to (0, 0, 1) since normal coordinates are [-1, 1]
+            let orthogonal_normal = Rgb([128, 128, 255]);
+            Texture::from_pixel(device, queue, orthogonal_normal, Some(file_name))
+                .map_err(|e| LoadError::Texture(e, file_name.to_string()))
+        } else {
+            Ok(load_texture(&m.normal_texture, true, device, queue).await?)
+        }?;
 
         materials.push(Material::new(
             device,
+            queue,
             &m.name,
             m.diffuse,
             diffuse_texture,

@@ -1,6 +1,8 @@
 use crate::shader_locations::*;
 use crate::texture::Texture;
 use cgmath::Vector3;
+use image::Rgb;
+use palette::Srgb;
 use std::mem::size_of;
 use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -17,7 +19,7 @@ pub struct Material {
     pub name: String,
     pub diffuse_color: Vector3<f32>,
     pub material_buffer: Buffer,
-    pub diffuse_texture: Option<Texture>,
+    pub diffuse_texture: Texture,
     /// A normal map, where r, g and b map to x, y and z of the normals.
     pub normal_texture: Texture,
     pub bind_group: BindGroup,
@@ -26,35 +28,42 @@ pub struct Material {
 impl Material {
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         name: &str,
         diffuse_color: [f32; 3],
-        diffuse_texture: Option<Texture>,
+        maybe_diffuse_texture: Option<Texture>,
         normal_texture: Texture,
         layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let material_uniform =
-            MaterialUniform::new(diffuse_color, diffuse_texture.is_some().into());
+        let has_diffuse_texture = maybe_diffuse_texture.is_some();
+        let diffuse_texture = match maybe_diffuse_texture {
+            Some(diffuse_texture) => diffuse_texture,
+            None => {
+                // Can't exclude texture from bind group, so put a 1-pixel texture there.
+                let blank_pixel = Rgb([255, 0, 255]);
+                Texture::from_pixel(device, queue, blank_pixel, None)
+                    .expect("should be able to create blank single-pixel texture in-memory")
+            }
+        };
+
+        let base_color = Srgb::new(diffuse_color[0], diffuse_color[1], diffuse_color[2]);
+        let linear_rgb = base_color.into_linear();
+        let material_uniform = MaterialUniform::new(
+            [linear_rgb.red, linear_rgb.green, linear_rgb.blue],
+            has_diffuse_texture.into(),
+        );
         let material_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Material Buffer"),
             contents: bytemuck::cast_slice(&[material_uniform]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
-        let mut bind_group_entries = vec![
-            wgpu::BindGroupEntry {
-                binding: FRAGMENT_MATERIAL_UNIFORM,
-                resource: material_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: FRAGMENT_NORMAL_TEXTURE,
-                resource: wgpu::BindingResource::TextureView(&normal_texture.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: FRAGMENT_NORMAL_SAMPLER,
-                resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
-            },
-        ];
-        if let Some(diffuse_texture) = &diffuse_texture {
-            bind_group_entries.append(&mut vec![
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: FRAGMENT_MATERIAL_UNIFORM,
+                    resource: material_buffer.as_entire_binding(),
+                },
                 wgpu::BindGroupEntry {
                     binding: FRAGMENT_DIFFUSE_TEXTURE,
                     resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
@@ -63,11 +72,15 @@ impl Material {
                     binding: FRAGMENT_DIFFUSE_SAMPLER,
                     resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
                 },
-            ])
-        }
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &bind_group_entries,
+                wgpu::BindGroupEntry {
+                    binding: FRAGMENT_NORMAL_TEXTURE,
+                    resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: FRAGMENT_NORMAL_SAMPLER,
+                    resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
+                },
+            ],
             label: Some(name),
         });
 

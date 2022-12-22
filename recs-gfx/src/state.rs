@@ -326,7 +326,7 @@ impl State {
             )
         };
 
-        let file_name = "cube.obj";
+        let file_name = "car.obj";
         let obj_model =
             resources::load_model(file_name, &device, &queue, &texture_bind_group_layout)
                 .await
@@ -499,7 +499,7 @@ impl State {
 
 fn create_instances(device: &wgpu::Device, offset: f32) -> (Vec<Instance>, wgpu::Buffer) {
     const NUM_INSTANCES_PER_ROW: u32 = 10;
-    const SPACE_BETWEEN: f32 = 3.0;
+    const SPACE_BETWEEN: f32 = 10.0;
 
     let instances = (0..NUM_INSTANCES_PER_ROW)
         .flat_map(|z| {

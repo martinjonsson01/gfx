@@ -21,6 +21,7 @@ image = { version = "0.24.5", features = ["png", "jpeg"] }  # For loading of ima
 thiserror = "1.0.38"    # Macros for generating error enums/structs
 cgmath = "0.18.0"       # For linear algebra
 tobj = { version = "3.2.3", features = ["async"] } # For .obj model format loading
+palette = "0.6.1"          # For sRGB / RGB conversions
 
 [build-dependencies]
 anyhow = "1.0.67"       # For simple error handling
