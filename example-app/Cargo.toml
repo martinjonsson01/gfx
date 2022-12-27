@@ -11,3 +11,4 @@ tracing = "0.1.37"                      # For instrumenting to collect scoped, s
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] } # Tools for composing subscribers (to collect tracing data)
 tracing-error = "0.2.0"                 # Enriches error handling with tracing diagnostic information
 color-eyre = "0.6.2"                    # For pretty-printed error logging and tracing
+cgmath = "0.18.0"                       # For linear algebra

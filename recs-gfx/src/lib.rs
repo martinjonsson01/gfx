@@ -22,7 +22,8 @@
     clippy::if_then_some_else_none,
     clippy::print_stdout,
     clippy::rc_mutex,
-    clippy::unwrap_used
+    clippy::unwrap_used,
+    clippy::large_enum_variant
 )]
 
 mod camera;
@@ -33,7 +34,8 @@ mod state;
 mod texture;
 
 use crate::camera::{Camera, Projection};
-use crate::state::{State, StateError};
+pub use crate::instance::Transform;
+use crate::state::{ModelHandle, State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
 use color_eyre::Report;
 use std::time::Instant;
@@ -104,13 +106,19 @@ pub enum EngineError {
     MissingRootWindow(#[source] winit::error::OsError),
     /// Could not instantiate State.
     #[error("could not instantiate State")]
-    StateConstruction(#[source] StateError),
+    StateConstruction(#[source] Box<StateError>),
     /// Failed to render frame.
     #[error("failed to render frame")]
-    Rendering(#[source] StateError),
+    Rendering(#[source] Box<StateError>),
+    /// Could not load model.
+    #[error("could not load model `{1}`")]
+    ModelLoad(#[source] Box<StateError>, String),
     /// Could not create event filter from environment variable.
     #[error("could not create event filter from environment variable")]
     EnvironmentEventFilter(#[source] ParseError),
+    /// Could not create a new object.
+    #[error("a new object could not be created")]
+    ObjectCreation(#[source] Box<StateError>),
 }
 
 type EngineResult<T, E = EngineError> = Result<T, E>;
@@ -133,7 +141,7 @@ impl GraphicsEngine {
 
         let state = State::new(&window)
             .await
-            .map_err(EngineError::StateConstruction)?;
+            .map_err(|e| EngineError::StateConstruction(Box::new(e)))?;
 
         Ok(Self {
             window,
@@ -145,7 +153,7 @@ impl GraphicsEngine {
     /// Starts the graphics engine, opening a new window and rendering to it.
     ///
     /// # Examples
-    /// ```
+    /// ```no_run
     /// # use std::error::Error;
     /// use recs_gfx::GraphicsEngine;
     ///
@@ -176,6 +184,59 @@ impl GraphicsEngine {
                 *control_flow = ControlFlow::ExitWithCode(1); // Non-zero exit code means error.
             }
         });
+    }
+
+    /// Loads a model into the engine.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::error::Error;
+    /// use recs_gfx::GraphicsEngine;
+    ///
+    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
+    /// let mut graphics_engine = GraphicsEngine::new().await?;
+    ///
+    /// let model_path: &str = "path/to/model.obj";
+    /// let model_handle = graphics_engine.load_model(model_path).await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    #[instrument]
+    pub async fn load_model(&mut self, path: &str) -> EngineResult<ModelHandle> {
+        self.state
+            .load_model(path)
+            .await
+            .map_err(|e| EngineError::ModelLoad(Box::new(e), path.to_string()))
+    }
+
+    /// Creates an object in the world.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::error::Error;
+    /// use cgmath::{Quaternion, Vector3, Zero};
+    /// use recs_gfx::{GraphicsEngine, Transform};
+    ///
+    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
+    /// let mut graphics_engine = GraphicsEngine::new().await?;
+    ///
+    /// let model_path: &str = "path/to/model.obj";
+    /// let model_handle = graphics_engine.load_model(model_path).await?;
+    ///
+    /// let transform = Transform {
+    ///     position: Vector3::new(0.0, 10.0, 0.0),
+    ///     rotation: Quaternion::zero()
+    /// };
+    /// graphics_engine.create_object(model_handle, transform)?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    #[instrument]
+    pub fn create_object(&mut self, model: ModelHandle, transform: Transform) -> EngineResult<()> {
+        self.state
+            .create_model_instances(model, vec![transform])
+            .map_err(|e| EngineError::ObjectCreation(Box::new(e)))?;
+        Ok(())
     }
 }
 
@@ -257,7 +318,7 @@ fn handle_events(
                 // All other surface errors (Outdated, Timeout) should be resolved by the next frame.
                 Err(StateError::MissingOutputTexture(error)) => eprintln!("{error:?}"),
                 // Pass on any other rendering errors.
-                Err(error) => return Err(EngineError::Rendering(error))?,
+                Err(error) => return Err(EngineError::Rendering(Box::new(error)))?,
             }
         }
         _ => {}

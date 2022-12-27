@@ -1,5 +1,5 @@
 use crate::camera::{Camera, CameraController, Projection};
-use crate::instance::{Instance, InstanceRaw};
+use crate::instance::{ModelInstances, Transform, TransformRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
 use crate::shader_locations::{
     FRAGMENT_DIFFUSE_SAMPLER, FRAGMENT_DIFFUSE_TEXTURE, FRAGMENT_MATERIAL_UNIFORM,
@@ -33,9 +33,11 @@ pub enum StateError {
     ModelLoad(#[source] resources::LoadError, String),
     #[error("failed to get output texture")]
     MissingOutputTexture(#[source] wgpu::SurfaceError),
+    #[error("model handle `{0}` is invalid")]
+    InvalidModelHandle(ModelHandle),
 }
 
-type Result<T, E = StateError> = std::result::Result<T, E>;
+type StateResult<T, E = StateError> = Result<T, E>;
 
 /// A point-light that emits light in every direction and has no area.
 #[repr(C)]
@@ -75,29 +77,66 @@ pub(crate) struct State {
     camera_bind_group: wgpu::BindGroup,
     /// How the GPU acts on a set of data.
     render_pipeline: wgpu::RenderPipeline,
+    /// How textures are laid out in memory.
+    material_bind_group_layout: wgpu::BindGroupLayout,
     /// Model instances, to allow for one model to be shown multiple times with different transforms.
-    ///
-    /// If new instances are added, [`instance_buffer`] and [`camera_bind_group`] needs to be recreated,
-    /// otherwise the new instances won't show up correctly.
-    instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
-    instance_rotation_delta: f32,
+    instances: Vec<ModelInstances>,
     /// Used for depth-testing (z-culling) to render pixels in front of each other correctly.
     depth_texture: Texture,
-    /// The model to render.
-    obj_model: Model,
+    /// The models that can be rendered.
+    models: Vec<Model>,
     /// The uniform-representation of the light. (currently only single light supported)
     light_uniform: PointLightUniform,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
+    light_model: Model,
     /// How the GPU acts on lights.
     light_render_pipeline: wgpu::RenderPipeline,
     /// Whether the mouse button is pressed or not.
     pub(crate) mouse_pressed: bool,
 }
 
+/// An identifier for a specific model that has been loaded into the engine.
+pub type ModelHandle = usize;
+
+/// An identifier for a group of model instances.
+pub type InstancesHandle = usize;
+
 impl State {
-    pub(crate) async fn new(window: &Window) -> Result<Self> {
+    pub(crate) async fn load_model(&mut self, path: &str) -> StateResult<ModelHandle> {
+        let obj_model = resources::load_model(
+            path,
+            &self.device,
+            &self.queue,
+            &self.material_bind_group_layout,
+        )
+        .await
+        .map_err(|e| ModelLoad(e, path.to_string()))?;
+
+        let index = self.models.len();
+        self.models.push(obj_model);
+        Ok(index)
+    }
+
+    pub(crate) fn create_model_instances(
+        &mut self,
+        model: ModelHandle,
+        transforms: Vec<Transform>,
+    ) -> StateResult<InstancesHandle> {
+        if model >= self.models.len() {
+            return Err(StateError::InvalidModelHandle(model));
+        }
+
+        let instances = ModelInstances::new(&self.device, model, transforms);
+
+        let index = self.instances.len();
+        self.instances.push(instances);
+        Ok(index)
+    }
+}
+
+impl State {
+    pub(crate) async fn new(window: &Window) -> StateResult<Self> {
         let size = window.inner_size();
 
         if size.width == 0 {
@@ -155,10 +194,10 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let texture_bind_group_layout =
+        let material_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    // Diffuse color.
+                    // Material properties.
                     wgpu::BindGroupLayoutEntry {
                         binding: FRAGMENT_MATERIAL_UNIFORM,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -259,6 +298,15 @@ impl State {
             contents: bytemuck::cast_slice(&[light_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        let light_model_file_name = "cube.obj";
+        let light_model = resources::load_model(
+            light_model_file_name,
+            &device,
+            &queue,
+            &material_bind_group_layout,
+        )
+        .await
+        .map_err(|e| ModelLoad(e, light_model_file_name.to_string()))?;
         let light_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -286,7 +334,7 @@ impl State {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &texture_bind_group_layout,
+                    &material_bind_group_layout,
                     &camera_bind_group_layout,
                     &light_bind_group_layout,
                 ],
@@ -302,7 +350,7 @@ impl State {
                 &render_pipeline_layout,
                 config.format,
                 Some(Texture::DEPTH_FORMAT),
-                &[ModelVertex::descriptor(), InstanceRaw::descriptor()],
+                &[ModelVertex::descriptor(), TransformRaw::descriptor()],
                 shader,
             )
         };
@@ -327,15 +375,6 @@ impl State {
             )
         };
 
-        let file_name = "cube.obj";
-        let obj_model =
-            resources::load_model(file_name, &device, &queue, &texture_bind_group_layout)
-                .await
-                .map_err(|e| ModelLoad(e, file_name.to_string()))?;
-
-        let offset = 0.0;
-        let (instances, instance_buffer) = create_instances(&device, offset);
-
         let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
 
         Ok(Self {
@@ -352,15 +391,15 @@ impl State {
             camera_buffer,
             camera_bind_group,
             render_pipeline,
-            instances,
-            instance_buffer,
-            instance_rotation_delta: 0.0,
+            material_bind_group_layout,
+            instances: vec![],
             depth_texture,
-            obj_model,
+            models: vec![],
             light_uniform,
             light_buffer,
             light_bind_group,
             light_render_pipeline,
+            light_model,
             mouse_pressed: false,
         })
     }
@@ -415,13 +454,6 @@ impl State {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
 
-        // Animate instance rotation
-        self.instance_rotation_delta += 10.0 * dt.as_secs_f32();
-        let (instances, instance_buffer) =
-            create_instances(&self.device, self.instance_rotation_delta);
-        self.instances = instances;
-        self.instance_buffer = instance_buffer;
-
         // Animate light rotation
         const DEGREES_PER_SECOND: f32 = 60.0;
         let old_position: Vector3<_> = self.light_uniform.position.into();
@@ -437,7 +469,7 @@ impl State {
         );
     }
 
-    pub(crate) fn render(&mut self) -> Result<()> {
+    pub(crate) fn render(&mut self) -> StateResult<()> {
         let output = self
             .surface
             .get_current_texture()
@@ -473,22 +505,23 @@ impl State {
                 }),
             });
 
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-
             render_pass.set_pipeline(&self.light_render_pipeline);
             render_pass.draw_light_model(
-                &self.obj_model,
+                &self.light_model,
                 &self.camera_bind_group,
                 &self.light_bind_group,
             );
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw_model_instanced(
-                &self.obj_model,
-                0..self.instances.len() as u32,
-                &self.camera_bind_group,
-                &self.light_bind_group,
-            );
+            for model_instances in &self.instances {
+                render_pass.set_vertex_buffer(1, model_instances.buffer_slice());
+                render_pass.draw_model_instanced(
+                    &self.models[model_instances.model],
+                    model_instances.instances(),
+                    &self.camera_bind_group,
+                    &self.light_bind_group,
+                );
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -496,40 +529,6 @@ impl State {
 
         Ok(())
     }
-}
-
-fn create_instances(device: &wgpu::Device, offset: f32) -> (Vec<Instance>, wgpu::Buffer) {
-    const NUM_INSTANCES_PER_ROW: u32 = 10;
-    const SPACE_BETWEEN: f32 = 10.0;
-
-    let instances = (0..NUM_INSTANCES_PER_ROW)
-        .flat_map(|z| {
-            (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-                let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-                let position = Vector3 { x, y: 0.0, z };
-
-                let rotation = if position.is_zero() {
-                    // This is needed so an object at (0, 0, 0) won't get scaled to zero
-                    // as Quaternions can effect scale if they're not created correctly.
-                    Quaternion::from_axis_angle(Vector3::unit_z(), Deg(0.0))
-                } else {
-                    Quaternion::from_axis_angle(position.normalize(), Deg(45.0 + offset))
-                };
-
-                Instance { position, rotation }
-            })
-        })
-        .collect::<Vec<_>>();
-
-    let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-    let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Instance Buffer"),
-        contents: bytemuck::cast_slice(&instance_data),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
-    (instances, instance_buffer)
 }
 
 fn create_render_pipeline(

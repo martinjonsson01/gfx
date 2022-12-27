@@ -1,6 +1,7 @@
+use cgmath::{Quaternion, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
-use recs_gfx::GraphicsEngine;
+use recs_gfx::{GraphicsEngine, Transform};
 use tracing::{info_span, instrument};
 
 #[instrument]
@@ -15,7 +16,15 @@ fn main() -> Result<(), Report> {
 }
 
 async fn async_main() -> Result<(), Report> {
-    let gfx = GraphicsEngine::new().await?;
+    let mut gfx = GraphicsEngine::new().await?;
+
+    let model = gfx.load_model("cube.obj").await?;
+    let transform = Transform {
+        position: Vector3::zero(),
+        rotation: Quaternion::zero(),
+    };
+    gfx.create_object(model, transform)?;
+
     gfx.run().await?;
     Ok(())
 }
