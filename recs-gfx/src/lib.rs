@@ -238,6 +238,40 @@ impl GraphicsEngine {
             .map_err(|e| EngineError::ObjectCreation(Box::new(e)))?;
         Ok(())
     }
+
+    /// Creates multiple objects with the same model in the world.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::error::Error;
+    /// use cgmath::{One, Quaternion, Vector3, Zero};
+    /// use recs_gfx::{GraphicsEngine, Transform};
+    ///
+    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
+    /// let mut graphics_engine = GraphicsEngine::new().await?;
+    ///
+    /// let model_path: &str = "path/to/model.obj";
+    /// let model_handle = graphics_engine.load_model(model_path).await?;
+    ///
+    /// let transforms = (0..10).map(|_| Transform {
+    ///     position: Vector3::zero(),
+    ///     rotation: Quaternion::one(),
+    /// }).collect();
+    /// graphics_engine.create_objects(model_handle, transforms)?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    #[instrument]
+    pub fn create_objects(
+        &mut self,
+        model: ModelHandle,
+        transforms: Vec<Transform>,
+    ) -> EngineResult<()> {
+        self.state
+            .create_model_instances(model, transforms)
+            .map_err(|e| EngineError::ObjectCreation(Box::new(e)))?;
+        Ok(())
+    }
 }
 
 fn install_tracing() -> EngineResult<DefaultGuard> {
