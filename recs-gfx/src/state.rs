@@ -254,7 +254,7 @@ impl State {
         };
 
         let camera = Camera::new((0.0, 5.0, 10.0), Deg(-90.0), Deg(-20.0));
-        let projection = Projection::new(config.width, config.height, Deg(45.0), 0.1, 100.0);
+        let projection = Projection::new(config.width, config.height, Deg(70.0), 0.1, 100.0);
         let camera_controller = CameraController::new(7.0, 1.0);
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_projection(&camera, &projection);
@@ -288,7 +288,7 @@ impl State {
         });
 
         let light_uniform = PointLightUniform {
-            position: [20.0, 20.0, 20.0],
+            position: [5.0, 5.0, 5.0],
             _padding: 0,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,

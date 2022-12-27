@@ -101,7 +101,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_term = light.color * ambient_strength;
 
     let tangent_normal = object_normal.xyz * 2.0 - 1.0;
-    let light_dir = normalize(in.tangent_light_position - in.tangent_position);
+    let to_light = in.tangent_light_position - in.tangent_position;
+    let light_dir = normalize(to_light);
+    let light_distance = length(to_light);
     let view_dir = normalize(in.tangent_view_position - in.tangent_position);
     let half_dir = normalize(view_dir + light_dir);
 
@@ -116,7 +118,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         base_color *= textureSample(t_diffuse, s_diffuse, in.tex_coords).xyz;
     }
 
-    let result = (ambient_term + diffuse_term + specular_term) * base_color;
+    let attenuation = 1.0 / (1.0 + 0.1 * light_distance);
+    let result = attenuation * (ambient_term + diffuse_term + specular_term) * base_color;
 
     return vec4<f32>(result, 1.0);
 }
