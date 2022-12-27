@@ -225,7 +225,7 @@ impl GraphicsEngine {
     ///
     /// let transform = Transform {
     ///     position: Vector3::new(0.0, 10.0, 0.0),
-    ///     rotation: Quaternion::zero()
+    ///     rotation: Quaternion::zero(),
     /// };
     /// graphics_engine.create_object(model_handle, transform)?;
     /// #   Ok(())
@@ -253,10 +253,12 @@ impl GraphicsEngine {
     /// let model_path: &str = "path/to/model.obj";
     /// let model_handle = graphics_engine.load_model(model_path).await?;
     ///
-    /// let transforms = (0..10).map(|_| Transform {
-    ///     position: Vector3::zero(),
-    ///     rotation: Quaternion::one(),
-    /// }).collect();
+    /// let transforms = (0..10)
+    ///     .map(|_| Transform {
+    ///         position: Vector3::zero(),
+    ///         rotation: Quaternion::one(),
+    ///     })
+    ///     .collect();
     /// graphics_engine.create_objects(model_handle, transforms)?;
     /// #   Ok(())
     /// # }
