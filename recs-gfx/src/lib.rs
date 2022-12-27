@@ -164,7 +164,7 @@ impl GraphicsEngine {
     /// #   Ok(())
     /// # }
     /// ```
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn run(mut self) -> EngineResult<()> {
         let _guard = install_tracing()?;
 
@@ -201,7 +201,7 @@ impl GraphicsEngine {
     /// #   Ok(())
     /// # }
     /// ```
-    #[instrument]
+    #[instrument(skip(self))]
     pub async fn load_model(&mut self, path: &str) -> EngineResult<ModelHandle> {
         self.state
             .load_model(path)
@@ -231,7 +231,7 @@ impl GraphicsEngine {
     /// #   Ok(())
     /// # }
     /// ```
-    #[instrument]
+    #[instrument(skip(self))]
     pub fn create_object(&mut self, model: ModelHandle, transform: Transform) -> EngineResult<()> {
         self.state
             .create_model_instances(model, vec![transform])
@@ -263,7 +263,7 @@ impl GraphicsEngine {
     /// #   Ok(())
     /// # }
     /// ```
-    #[instrument]
+    #[instrument(skip(self))]
     pub fn create_objects(
         &mut self,
         model: ModelHandle,
