@@ -454,6 +454,28 @@ impl State {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
 
+        // Animate instance rotation
+        let rotation_delta = 10.0 * dt.as_secs_f32();
+        for instances in &mut self.instances {
+            let new_transforms = instances
+                .transforms()
+                .iter()
+                .map(|old_transform| {
+                    let rotation_axis = if old_transform.position.is_zero() {
+                        Vector3::unit_z()
+                    } else {
+                        old_transform.position.normalize()
+                    };
+                    let rotation = Quaternion::from_axis_angle(rotation_axis, Deg(rotation_delta));
+                    Transform {
+                        rotation: old_transform.rotation * rotation,
+                        ..*old_transform
+                    }
+                })
+                .collect();
+            instances.update_transforms(&self.device, new_transforms);
+        }
+
         // Animate light rotation
         const DEGREES_PER_SECOND: f32 = 60.0;
         let old_position: Vector3<_> = self.light_uniform.position.into();

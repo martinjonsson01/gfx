@@ -18,17 +18,22 @@ pub(crate) struct ModelInstances {
 
 impl ModelInstances {
     pub fn new(device: &wgpu::Device, model: ModelHandle, transforms: Vec<Transform>) -> Self {
+        let buffer = Self::create_buffer(device, &transforms);
+        Self {
+            model,
+            transforms,
+            buffer,
+        }
+    }
+
+    fn create_buffer(device: &wgpu::Device, transforms: &[Transform]) -> wgpu::Buffer {
         let transform_data = transforms.iter().map(Transform::to_raw).collect::<Vec<_>>();
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Transform Buffer"),
             contents: bytemuck::cast_slice(&transform_data),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        Self {
-            model,
-            transforms,
-            buffer,
-        }
+        buffer
     }
 
     /// Which instance data to use.
@@ -39,6 +44,16 @@ impl ModelInstances {
     /// Which instances to render.
     pub fn instances(&self) -> Range<u32> {
         0..self.transforms.len() as u32
+    }
+
+    pub fn transforms(&self) -> &[Transform] {
+        &self.transforms
+    }
+
+    pub fn update_transforms(&mut self, device: &wgpu::Device, updated_transforms: Vec<Transform>) {
+        let buffer = Self::create_buffer(device, &updated_transforms);
+        self.transforms = updated_transforms;
+        self.buffer = buffer;
     }
 }
 

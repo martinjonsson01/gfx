@@ -1,4 +1,4 @@
-use cgmath::{Quaternion, Vector3, Zero};
+use cgmath::{One, Quaternion, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use recs_gfx::{GraphicsEngine, Transform};
@@ -21,7 +21,7 @@ async fn async_main() -> Result<(), Report> {
     let model = gfx.load_model("cube.obj").await?;
     let transform = Transform {
         position: Vector3::zero(),
-        rotation: Quaternion::zero(),
+        rotation: Quaternion::one(),
     };
     gfx.create_object(model, transform)?;
 
