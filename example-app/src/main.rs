@@ -20,9 +20,17 @@ async fn async_main() -> Result<(), Report> {
 
     let model = gfx.load_model("cube.obj").await?;
 
+    let transforms = create_transforms();
+    gfx.create_objects(model, transforms)?;
+
+    gfx.run().await?;
+    Ok(())
+}
+
+fn create_transforms() -> Vec<Transform> {
     const NUM_INSTANCES_PER_ROW: u32 = 10;
     const SPACE_BETWEEN: f32 = 10.0;
-    let transforms = (0..NUM_INSTANCES_PER_ROW)
+    (0..NUM_INSTANCES_PER_ROW)
         .flat_map(|z| {
             (0..NUM_INSTANCES_PER_ROW).map(move |x| {
                 let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
@@ -41,12 +49,7 @@ async fn async_main() -> Result<(), Report> {
                 Transform { position, rotation }
             })
         })
-        .collect::<Vec<_>>();
-
-    gfx.create_objects(model, transforms)?;
-
-    gfx.run().await?;
-    Ok(())
+        .collect()
 }
 
 fn install_tracing() -> Result<(), Report> {
