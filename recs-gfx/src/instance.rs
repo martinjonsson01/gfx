@@ -3,6 +3,7 @@ use cgmath::{Matrix3, Matrix4, Quaternion, Vector3};
 use std::mem::size_of;
 
 /// The transform of an instance of a model.
+#[derive(Debug)]
 pub struct Instance {
     pub position: Vector3<f32>,
     pub rotation: Quaternion<f32>,

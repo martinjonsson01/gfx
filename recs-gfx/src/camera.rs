@@ -56,6 +56,7 @@ impl Camera {
 }
 
 /// The perspective projection.
+#[derive(Debug)]
 pub struct Projection {
     /// The aspect ratio of the viewport.
     aspect: f32,

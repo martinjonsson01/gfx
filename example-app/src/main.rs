@@ -1,5 +1,6 @@
+use color_eyre::eyre::Result;
 use color_eyre::Report;
-use recs_gfx::run;
+use recs_gfx::GraphicsEngine;
 use tracing::{info_span, instrument};
 
 #[instrument]
@@ -8,8 +9,14 @@ fn main() -> Result<(), Report> {
 
     color_eyre::install()?;
 
-    info_span!("gfx").in_scope(|| pollster::block_on(run()))?;
+    info_span!("gfx").in_scope(|| pollster::block_on(async_main()))?;
 
+    Ok(())
+}
+
+async fn async_main() -> Result<(), Report> {
+    let gfx = GraphicsEngine::new().await?;
+    gfx.run().await?;
     Ok(())
 }
 

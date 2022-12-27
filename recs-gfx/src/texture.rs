@@ -12,6 +12,7 @@ type TextureResult<T, E = TextureError> = Result<T, E>;
 /// How many bytes a pixel in an 8-bit texture contains. (1 byte for r, g, b and a)
 const RGBA_U8_BYTES: u32 = 4;
 
+#[derive(Debug)]
 pub struct Texture {
     _texture: wgpu::Texture,
     pub view: wgpu::TextureView,

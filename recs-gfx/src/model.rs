@@ -9,12 +9,14 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, Buffer, BufferUsages};
 
 /// A 3D model representing a visible object.
+#[derive(Debug)]
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
 }
 
 /// A description of how a [`Mesh`] looks.
+#[derive(Debug)]
 pub struct Material {
     pub name: String,
     pub diffuse_color: Vector3<f32>,
@@ -113,6 +115,7 @@ impl MaterialUniform {
 }
 
 /// The geometry of an object, composed of discrete vertices.
+#[derive(Debug)]
 pub struct Mesh {
     pub name: String,
     pub vertex_buffer: Buffer,

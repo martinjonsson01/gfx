@@ -113,40 +113,73 @@ pub enum EngineError {
     EnvironmentEventFilter(#[source] ParseError),
 }
 
-type Result<T, E = EngineError> = std::result::Result<T, E>;
+type EngineResult<T, E = EngineError> = Result<T, E>;
 
-/// Starts the graphics engine, opening a new window and rendering to it.
-#[instrument]
-pub async fn run() -> Result<()> {
-    let _guard = install_tracing()?;
-
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .build(&event_loop)
-        .map_err(EngineError::MissingRootWindow)?;
-
-    let mut state = State::new(&window)
-        .await
-        .map_err(EngineError::StateConstruction)?;
-    let mut last_render_time = Instant::now();
-
-    event_loop.run(move |event, _, control_flow| {
-        let result = handle_events(
-            &window,
-            &mut state,
-            &mut last_render_time,
-            event,
-            control_flow,
-        );
-        if let Err(error) = result {
-            let report = Report::new(error);
-            error!("{report:?}");
-            *control_flow = ControlFlow::ExitWithCode(1); // Non-zero exit code means error.
-        }
-    });
+/// The core data structure of the rendering system.
+#[derive(Debug)]
+pub struct GraphicsEngine {
+    window: Window,
+    event_loop: EventLoop<()>,
+    state: State,
 }
 
-fn install_tracing() -> Result<DefaultGuard> {
+impl GraphicsEngine {
+    /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
+    pub async fn new() -> EngineResult<Self> {
+        let event_loop = EventLoop::new();
+        let window = WindowBuilder::new()
+            .build(&event_loop)
+            .map_err(EngineError::MissingRootWindow)?;
+
+        let state = State::new(&window)
+            .await
+            .map_err(EngineError::StateConstruction)?;
+
+        Ok(Self {
+            window,
+            event_loop,
+            state,
+        })
+    }
+
+    /// Starts the graphics engine, opening a new window and rendering to it.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::error::Error;
+    /// use recs_gfx::GraphicsEngine;
+    ///
+    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
+    /// let graphics_engine = GraphicsEngine::new().await?;
+    ///
+    /// graphics_engine.run().await?;
+    /// #   Ok(())
+    /// # }
+    /// ```
+    #[instrument]
+    pub async fn run(mut self) -> EngineResult<()> {
+        let _guard = install_tracing()?;
+
+        let mut last_render_time = Instant::now();
+
+        self.event_loop.run(move |event, _, control_flow| {
+            let result = handle_events(
+                &self.window,
+                &mut self.state,
+                &mut last_render_time,
+                event,
+                control_flow,
+            );
+            if let Err(error) = result {
+                let report = Report::new(error);
+                error!("{report:?}");
+                *control_flow = ControlFlow::ExitWithCode(1); // Non-zero exit code means error.
+            }
+        });
+    }
+}
+
+fn install_tracing() -> EngineResult<DefaultGuard> {
     use tracing_error::ErrorLayer;
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
@@ -179,7 +212,7 @@ fn handle_events(
     last_render_time: &mut Instant,
     event: Event<()>,
     control_flow: &mut ControlFlow,
-) -> Result<()> {
+) -> EngineResult<()> {
     match event {
         Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually

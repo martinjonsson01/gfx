@@ -47,6 +47,7 @@ struct PointLightUniform {
     _padding2: u32,
 }
 
+#[derive(Debug)]
 pub(crate) struct State {
     /// The part of the [`Window`] that we draw to.
     surface: wgpu::Surface,
