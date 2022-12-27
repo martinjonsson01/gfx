@@ -10,6 +10,8 @@ use tracing::warn;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue};
 
+const ASSETS_PATH: &str = "assets";
+
 #[derive(Error, Debug)]
 pub enum LoadError {
     #[error("failed to load string from path `{1}`")]
@@ -38,7 +40,7 @@ impl LoadError {
 
 pub async fn load_string(file_name: &str) -> Result<String> {
     let path = std::path::Path::new(env!("OUT_DIR"))
-        .join("res")
+        .join(ASSETS_PATH)
         .join(file_name);
     let txt =
         std::fs::read_to_string(path).map_err(|e| LoadError::String(e, file_name.to_string()))?;
@@ -47,7 +49,7 @@ pub async fn load_string(file_name: &str) -> Result<String> {
 
 pub async fn load_binary(file_name: &str) -> Result<Vec<u8>> {
     let path = std::path::Path::new(env!("OUT_DIR"))
-        .join("res")
+        .join(ASSETS_PATH)
         .join(file_name);
     let data = std::fs::read(path).map_err(|e| LoadError::Binary(e, file_name.to_string()))?;
     Ok(data)
