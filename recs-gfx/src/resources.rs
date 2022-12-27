@@ -1,11 +1,12 @@
 use crate::model::{Material, Mesh, Model, ModelVertex};
 use crate::texture;
 use crate::texture::Texture;
-use cgmath::{Vector2, Vector3};
+use cgmath::{InnerSpace, Vector2, Vector3, Vector4, Zero};
 use image::Rgb;
 use std::io;
 use std::io::{BufReader, Cursor};
 use thiserror::Error;
+use tracing::warn;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue};
 
@@ -119,22 +120,39 @@ pub async fn load_model(
     let meshes = models
         .into_iter()
         .map(|m| {
+            // Some meshes don't have normals, so automatically generate some based on vertices.
+            let auto_normals: Vec<Vector3<f32>> = generate_normals(&m.mesh);
+
+            if m.mesh.normals.is_empty() {
+                warn!(
+                    "mesh in model {0} has no normals, using auto-generated ones",
+                    m.name
+                );
+            }
+
             let mut vertices = (0..m.mesh.positions.len() / 3)
-                .map(|i| ModelVertex {
-                    position: [
-                        m.mesh.positions[i * 3],
-                        m.mesh.positions[i * 3 + 1],
-                        m.mesh.positions[i * 3 + 2],
-                    ],
-                    tex_coords: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
-                    normal: [
-                        m.mesh.normals[i * 3],
-                        m.mesh.normals[i * 3 + 1],
-                        m.mesh.normals[i * 3 + 2],
-                    ],
-                    // These are calculate later.
-                    tangent: [0.0; 3],
-                    bitangent: [0.0; 3],
+                .map(|i| {
+                    let normal = if m.mesh.normals.len() >= 3 {
+                        [
+                            m.mesh.normals[i * 3],
+                            m.mesh.normals[i * 3 + 1],
+                            m.mesh.normals[i * 3 + 2],
+                        ]
+                    } else {
+                        auto_normals[i].into()
+                    };
+                    ModelVertex {
+                        position: [
+                            m.mesh.positions[i * 3],
+                            m.mesh.positions[i * 3 + 1],
+                            m.mesh.positions[i * 3 + 2],
+                        ],
+                        tex_coords: [m.mesh.texcoords[i * 2], m.mesh.texcoords[i * 2 + 1]],
+                        normal,
+                        // These are calculated later.
+                        tangent: [0.0; 3],
+                        bitangent: [0.0; 3],
+                    }
                 })
                 .collect::<Vec<_>>();
 
@@ -162,6 +180,54 @@ pub async fn load_model(
         .collect::<Vec<_>>();
 
     Ok(Model { meshes, materials })
+}
+
+fn generate_normals(mesh: &tobj::Mesh) -> Vec<Vector3<f32>> {
+    let mut normals: Vec<Vector4<f32>> = (0..mesh.positions.len() / 3)
+        .map(|_| Vector4::zero())
+        .collect();
+    for face in 0..mesh.indices.len() / 3 {
+        let vertex0_index = mesh.indices[face * 3] as usize;
+        let vertex0: Vector3<_> = [
+            mesh.positions[vertex0_index * 3],
+            mesh.positions[vertex0_index * 3 + 1],
+            mesh.positions[vertex0_index * 3 + 2],
+        ]
+        .into();
+        let vertex1_index = mesh.indices[face * 3 + 1] as usize;
+        let vertex1: Vector3<_> = [
+            mesh.positions[vertex1_index * 3],
+            mesh.positions[vertex1_index * 3 + 1],
+            mesh.positions[vertex1_index * 3 + 2],
+        ]
+        .into();
+        let vertex2_index = mesh.indices[face * 3 + 2] as usize;
+        let vertex2: Vector3<_> = [
+            mesh.positions[vertex2_index * 3],
+            mesh.positions[vertex2_index * 3 + 1],
+            mesh.positions[vertex2_index * 3 + 2],
+        ]
+        .into();
+
+        let edge0 = (vertex1 - vertex0).normalize();
+        let edge1 = (vertex2 - vertex0).normalize();
+        let face_normal = edge0.cross(edge1);
+
+        // w = 1 so it can be used to normalize vertex normals, because a single vertex
+        // may be present in multiple triangles.
+        normals[vertex0_index] += face_normal.extend(1.0);
+        normals[vertex1_index] += face_normal.extend(1.0);
+        normals[vertex2_index] += face_normal.extend(1.0);
+    }
+
+    for normal in normals.iter_mut() {
+        *normal = (1.0 / normal.w) * *normal;
+    }
+
+    normals
+        .into_iter()
+        .map(|normal| normal.truncate() / normal.w)
+        .collect()
 }
 
 fn calculate_tangents_bitangents(m: &tobj::Model, vertices: &mut Vec<ModelVertex>) {

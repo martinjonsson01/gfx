@@ -248,7 +248,7 @@ impl State {
         });
 
         let light_uniform = PointLightUniform {
-            position: [2.0, 2.0, 2.0],
+            position: [20.0, 20.0, 20.0],
             _padding: 0,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
@@ -326,7 +326,7 @@ impl State {
             )
         };
 
-        let file_name = "car.obj";
+        let file_name = "cube.obj";
         let obj_model =
             resources::load_model(file_name, &device, &queue, &texture_bind_group_layout)
                 .await
