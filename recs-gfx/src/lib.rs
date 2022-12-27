@@ -189,7 +189,7 @@ impl GraphicsEngine {
     /// Loads a model into the engine.
     ///
     /// # Examples
-    /// ```
+    /// ```no_run
     /// # use std::error::Error;
     /// use recs_gfx::GraphicsEngine;
     ///
@@ -212,7 +212,7 @@ impl GraphicsEngine {
     /// Creates an object in the world.
     ///
     /// # Examples
-    /// ```
+    /// ```no_run
     /// # use std::error::Error;
     /// use cgmath::{Quaternion, Vector3, Zero};
     /// use recs_gfx::{GraphicsEngine, Transform};
@@ -242,7 +242,7 @@ impl GraphicsEngine {
     /// Creates multiple objects with the same model in the world.
     ///
     /// # Examples
-    /// ```
+    /// ```no_run
     /// # use std::error::Error;
     /// use cgmath::{One, Quaternion, Vector3, Zero};
     /// use recs_gfx::{GraphicsEngine, Transform};
