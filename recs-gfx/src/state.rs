@@ -385,16 +385,10 @@ impl State {
     }
 
     pub(crate) fn update(&mut self, dt: Duration) {
-        // TODO: maybe encapsulate in uniform with some uniform.update_data(|data| ...)
         self.camera_controller.update_camera(&mut self.camera, dt);
-        self.camera_uniform
-            .data
-            .update_view_projection(&self.camera, &self.projection);
-        self.queue.write_buffer(
-            &self.camera_uniform.buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera_uniform.data]),
-        );
+        self.camera_uniform.update_data(&self.queue, |camera_data| {
+            camera_data.update_view_projection(&self.camera, &self.projection)
+        });
 
         // Animate instance rotation
         let rotation_delta = 10.0 * dt.as_secs_f32();
@@ -420,17 +414,14 @@ impl State {
 
         // Animate light rotation
         const DEGREES_PER_SECOND: f32 = 60.0;
-        let old_position: Vector3<_> = self.light_uniform.data.position.into();
-        let rotation = Quaternion::from_axis_angle(
-            Vector3::unit_y(),
-            Deg(DEGREES_PER_SECOND * dt.as_secs_f32()),
-        );
-        self.light_uniform.data.position = (rotation * old_position).into();
-        self.queue.write_buffer(
-            &self.light_uniform.buffer,
-            0,
-            bytemuck::cast_slice(&[self.light_uniform.data]),
-        );
+        self.light_uniform.update_data(&self.queue, |light| {
+            let old_position: Vector3<_> = light.position.into();
+            let rotation = Quaternion::from_axis_angle(
+                Vector3::unit_y(),
+                Deg(DEGREES_PER_SECOND * dt.as_secs_f32()),
+            );
+            light.position = (rotation * old_position).into();
+        });
     }
 
     pub(crate) fn render(&mut self) -> StateResult<()> {

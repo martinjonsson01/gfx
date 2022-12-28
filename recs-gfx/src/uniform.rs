@@ -8,8 +8,8 @@ use wgpu::util::DeviceExt;
 /// other data, it should be a part of a bind group containing all the commonly updated data.
 #[derive(Debug)]
 pub(crate) struct Uniform<TData> {
-    pub data: TData,
-    pub buffer: wgpu::Buffer,
+    data: TData,
+    buffer: wgpu::Buffer,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub bind_group: wgpu::BindGroup,
     // Need to own these strings somewhere, if they're used as labels for the wgpu data types.
@@ -31,6 +31,14 @@ where
 {
     pub(crate) fn builder(device: &wgpu::Device, data: TData) -> UniformBuilder<TData> {
         UniformBuilder::new(device, data)
+    }
+
+    pub(crate) fn update_data<TUpdater>(&mut self, queue: &wgpu::Queue, updater: TUpdater)
+    where
+        TUpdater: Fn(&mut TData),
+    {
+        updater(&mut self.data);
+        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.data]));
     }
 }
 
