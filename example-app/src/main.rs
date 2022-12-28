@@ -1,6 +1,7 @@
 use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
+use rand::Rng;
 use recs_gfx::{GraphicsEngine, Transform};
 use tracing::{info_span, instrument};
 
@@ -46,7 +47,19 @@ fn create_transforms() -> Vec<Transform> {
                     Quaternion::from_axis_angle(position.normalize(), Deg(45.0))
                 };
 
-                Transform { position, rotation }
+                let mut random = rand::thread_rng();
+                let scale = [
+                    random.gen_range(0.1..1.0),
+                    random.gen_range(0.1..1.0),
+                    random.gen_range(0.1..1.0),
+                ]
+                .into();
+
+                Transform {
+                    position,
+                    rotation,
+                    scale,
+                }
             })
         })
         .collect()

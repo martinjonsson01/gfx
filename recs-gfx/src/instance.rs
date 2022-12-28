@@ -64,10 +64,14 @@ pub struct Transform {
     pub position: Vector3<f32>,
     /// The orientation of the object.
     pub rotation: Quaternion<f32>,
+    /// The scaling of the object.
+    pub scale: Vector3<f32>,
 }
 impl Transform {
     pub(crate) fn to_raw(&self) -> TransformRaw {
-        let model = Matrix4::from_translation(self.position) * Matrix4::from(self.rotation);
+        let model = Matrix4::from_translation(self.position)
+            * Matrix4::from(self.rotation)
+            * Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
         TransformRaw {
             model: model.into(),
             normal: Matrix3::from(self.rotation).into(),

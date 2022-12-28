@@ -12,3 +12,4 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] } # Tools f
 tracing-error = "0.2.0"                 # Enriches error handling with tracing diagnostic information
 color-eyre = "0.6.2"                    # For pretty-printed error logging and tracing
 cgmath = "0.18.0"                       # For linear algebra
+rand = "0.8.5"                          # To generate random numbers
