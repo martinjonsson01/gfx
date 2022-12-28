@@ -13,7 +13,6 @@ use cgmath::{Deg, Quaternion, Vector3};
 use std::time::Duration;
 use thiserror::Error;
 use wgpu::util::DeviceExt;
-use wgpu::RequestDeviceError;
 use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
 use winit::window::Window;
 
@@ -26,7 +25,7 @@ pub enum StateError {
     #[error("an adapter that matches the requirements can not be found")]
     AdapterNotFound,
     #[error("a device that matches the requirements can not be found")]
-    DeviceNotFound(#[source] RequestDeviceError),
+    DeviceNotFound(#[source] wgpu::RequestDeviceError),
     #[error("the surface `{surface}` is not compatible with the available adapter `{adapter}`")]
     SurfaceIncompatibleWithAdapter { surface: String, adapter: String },
     #[error("failed to load model from path `{1}`")]
@@ -209,41 +208,13 @@ impl State {
                         count: None,
                     },
                     // Diffuse texture.
-                    wgpu::BindGroupLayoutEntry {
-                        binding: FRAGMENT_DIFFUSE_TEXTURE,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: FRAGMENT_DIFFUSE_SAMPLER,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    Self::create_texture_2d_layout(FRAGMENT_DIFFUSE_TEXTURE),
+                    Self::create_sampler_2d_layout(FRAGMENT_DIFFUSE_SAMPLER),
                     // Normal map.
-                    wgpu::BindGroupLayoutEntry {
-                        binding: FRAGMENT_NORMAL_TEXTURE,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: FRAGMENT_NORMAL_SAMPLER,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    Self::create_texture_2d_layout(FRAGMENT_NORMAL_TEXTURE),
+                    Self::create_sampler_2d_layout(FRAGMENT_NORMAL_SAMPLER),
                 ],
-                label: Some("texture_bind_group_layout"),
+                label: Some("material_bind_group_layout"),
             });
 
         let clear_color = wgpu::Color {
@@ -266,16 +237,7 @@ impl State {
         });
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[Self::create_uniform_layout(0)],
                 label: Some("camera_bind_group_layout"),
             });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -309,17 +271,8 @@ impl State {
         .map_err(|e| ModelLoad(e, light_model_file_name.to_string()))?;
         let light_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: None,
+                entries: &[Self::create_uniform_layout(0)],
+                label: Some("light_bind_group_layout"),
             });
         let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &light_bind_group_layout,
@@ -402,6 +355,41 @@ impl State {
             light_model,
             mouse_pressed: false,
         })
+    }
+
+    fn create_uniform_layout(binding: wgpu::ShaderLocation) -> wgpu::BindGroupLayoutEntry {
+        wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }
+    }
+
+    fn create_sampler_2d_layout(binding: wgpu::ShaderLocation) -> wgpu::BindGroupLayoutEntry {
+        wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        }
+    }
+
+    fn create_texture_2d_layout(binding: wgpu::ShaderLocation) -> wgpu::BindGroupLayoutEntry {
+        wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                multisampled: false,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            },
+            count: None,
+        }
     }
 
     pub(crate) fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
