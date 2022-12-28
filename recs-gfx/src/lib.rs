@@ -32,6 +32,7 @@ mod model;
 mod resources;
 mod state;
 mod texture;
+mod uniform;
 
 use crate::camera::{Camera, Projection};
 pub use crate::instance::Transform;
