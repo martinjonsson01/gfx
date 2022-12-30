@@ -460,13 +460,19 @@ impl State {
                 }),
             });
 
+            #[cfg(debug_assertions)]
+            render_pass.push_debug_group("Drawing light.");
             render_pass.set_pipeline(&self.light_render_pipeline);
             render_pass.draw_light_model(
                 &self.light_model,
                 &self.camera_uniform.bind_group,
                 &self.light_uniform.bind_group,
             );
+            #[cfg(debug_assertions)]
+            render_pass.pop_debug_group();
 
+            #[cfg(debug_assertions)]
+            render_pass.push_debug_group("Drawing model instances.");
             render_pass.set_pipeline(&self.render_pipeline);
             for model_instances in &self.instances {
                 render_pass.set_vertex_buffer(1, model_instances.buffer_slice());
@@ -477,6 +483,8 @@ impl State {
                     &self.light_uniform.bind_group,
                 );
             }
+            #[cfg(debug_assertions)]
+            render_pass.pop_debug_group();
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -255,6 +255,8 @@ where
         light_bind_group: &'b BindGroup,
     ) {
         for mesh in &model.meshes {
+            #[cfg(debug_assertions)]
+            self.push_debug_group(&format!("Drawing {0}.", mesh.name));
             let material = &model.materials[mesh.material_index];
             self.draw_mesh_instanced(
                 mesh,
@@ -263,6 +265,8 @@ where
                 camera_bind_group,
                 light_bind_group,
             );
+            #[cfg(debug_assertions)]
+            self.pop_debug_group();
         }
     }
 }
