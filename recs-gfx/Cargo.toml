@@ -21,7 +21,11 @@ image = { version = "0.24.5", features = ["png", "jpeg"] }  # For loading of ima
 thiserror = "1.0.38"    # Macros for generating error enums/structs
 cgmath = "0.18.0"       # For linear algebra
 tobj = { version = "3.2.3", features = ["async"] } # For .obj model format loading
-palette = "0.6.1"          # For sRGB / RGB conversions
+palette = "0.6.1"       # For sRGB / RGB conversions
+egui = "0.20.1"         # For basic GUIs
+egui-wgpu = "0.20.0"    # To support rendering of GUIs from egui using wgpu
+egui-winit = "0.20.1"   # To support winit for egui
+derivative = "2.2.0"    # Better trait derives (e.g. derive Debug but ignore one field)
 
 [build-dependencies]
 anyhow = "1.0.67"       # For simple error handling

@@ -39,6 +39,7 @@ pub use crate::instance::Transform;
 use crate::state::{ModelHandle, State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
 use color_eyre::Report;
+use derivative::Derivative;
 use std::time::Instant;
 use thiserror::Error;
 use tracing::dispatcher::DefaultGuard;
@@ -125,20 +126,30 @@ pub enum EngineError {
 type EngineResult<T, E = EngineError> = Result<T, E>;
 
 /// The core data structure of the rendering system.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct GraphicsEngine {
     window: Window,
+    #[derivative(Debug = "ignore")]
+    egui_context: egui::Context,
+    #[derivative(Debug = "ignore")]
+    egui_state: egui_winit::State,
     event_loop: EventLoop<()>,
     state: State,
+    last_render_time: Instant,
 }
 
 impl GraphicsEngine {
     /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
-    pub async fn new() -> EngineResult<Self> {
+    pub async fn new() -> EngineResult<GraphicsEngine> {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .build(&event_loop)
             .map_err(EngineError::MissingRootWindow)?;
+
+        let egui_context = egui::Context::default();
+        let mut egui_state = egui_winit::State::new(&event_loop);
+        egui_state.set_pixels_per_point(window.scale_factor() as f32);
 
         let state = State::new(&window)
             .await
@@ -146,8 +157,11 @@ impl GraphicsEngine {
 
         Ok(Self {
             window,
+            egui_context,
+            egui_state,
             event_loop,
             state,
+            last_render_time: Instant::now(),
         })
     }
 
@@ -169,13 +183,13 @@ impl GraphicsEngine {
     pub async fn run(mut self) -> EngineResult<()> {
         let _guard = install_tracing()?;
 
-        let mut last_render_time = Instant::now();
-
         self.event_loop.run(move |event, _, control_flow| {
             let result = handle_events(
                 &self.window,
+                &mut self.egui_context,
+                &mut self.egui_state,
                 &mut self.state,
-                &mut last_render_time,
+                &mut self.last_render_time,
                 event,
                 control_flow,
             );
@@ -308,6 +322,8 @@ pub(crate) enum EventPropagation {
 
 fn handle_events(
     window: &Window,
+    egui_context: &mut egui::Context,
+    egui_state: &mut egui_winit::State,
     state: &mut State,
     last_render_time: &mut Instant,
     event: Event<()>,
@@ -331,20 +347,26 @@ fn handle_events(
             ref event,
             window_id,
         } if window_id == window.id() => {
-            // Let state choose whether to handle the event instead of event_loop,
+            // Pass the winit events to the egui platform integration.
+            let egui_response = egui_state.on_event(egui_context, event);
+
+            // Let egui and state choose whether to handle the event instead of event_loop,
             // so it can override behaviors.
-            if state.input(event) == EventPropagation::Propagate {
+            // Order of handling is egui -> state.input -> event_loop
+            if !egui_response.consumed && state.input(event) == EventPropagation::Propagate {
                 handle_window_event(state, control_flow, event);
             }
         }
         Event::RedrawRequested(window_id) if window_id == window.id() => {
+            let input = egui_state.take_egui_input(window);
+
             let now = Instant::now();
             let delta_time = now - *last_render_time;
             *last_render_time = now;
 
             state.update(delta_time);
 
-            match state.render() {
+            match state.render(window, input, egui_state, egui_context) {
                 Ok(_) => {}
                 // Reconfigure the surface if lost.
                 Err(StateError::MissingOutputTexture(wgpu::SurfaceError::Lost)) => {
@@ -354,7 +376,10 @@ fn handle_events(
                 Err(StateError::MissingOutputTexture(wgpu::SurfaceError::OutOfMemory)) => {
                     *control_flow = ControlFlow::Exit
                 }
-                // All other surface errors (Outdated, Timeout) should be resolved by the next frame.
+                // `SurfaceError::Outdated` occurs when the app is minimized on Windows.
+                // Silently return here to prevent spamming the console with "Outdated".
+                Err(StateError::MissingOutputTexture(wgpu::SurfaceError::Outdated)) => {}
+                // All other surface errors (Timeout) should be resolved by the next frame.
                 Err(StateError::MissingOutputTexture(error)) => eprintln!("{error:?}"),
                 // Pass on any other rendering errors.
                 Err(error) => return Err(EngineError::Rendering(Box::new(error)))?,

@@ -11,6 +11,8 @@ use crate::uniform::{Uniform, UniformBinding};
 use crate::{resources, CameraUniform, EventPropagation};
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
+use derivative::Derivative;
+use std::iter;
 use std::time::Duration;
 use thiserror::Error;
 use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
@@ -48,7 +50,8 @@ struct PointLightUniform {
     _padding2: u32,
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub(crate) struct State {
     /// The part of the [`Window`] that we draw to.
     surface: wgpu::Surface,
@@ -87,6 +90,9 @@ pub(crate) struct State {
     light_render_pipeline: wgpu::RenderPipeline,
     /// Whether the mouse button is pressed or not.
     pub(crate) mouse_pressed: bool,
+    /// A render pass for the GUI from egui.
+    #[derivative(Debug = "ignore")]
+    egui_renderer: egui_wgpu::Renderer,
 }
 
 /// An identifier for a specific model that has been loaded into the engine.
@@ -171,21 +177,24 @@ impl State {
             .await
             .map_err(StateError::DeviceNotFound)?;
 
+        let surface_format = *surface
+            .get_supported_formats(&adapter)
+            .first()
+            .ok_or_else(|| StateError::SurfaceIncompatibleWithAdapter {
+                surface: format!("{surface:?}"),
+                adapter: format!("{adapter:?}"),
+            })?;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: *surface
-                .get_supported_formats(&adapter)
-                .first()
-                .ok_or_else(|| StateError::SurfaceIncompatibleWithAdapter {
-                    surface: format!("{surface:?}"),
-                    adapter: format!("{adapter:?}"),
-                })?,
+            format: surface_format,
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Mailbox, // Fast VSync
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
         surface.configure(&device, &config);
+
+        let egui_renderer = egui_wgpu::Renderer::new(&device, surface_format, None, 1);
 
         let material_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -319,6 +328,7 @@ impl State {
             light_render_pipeline,
             light_model,
             mouse_pressed: false,
+            egui_renderer,
         })
     }
 
@@ -424,7 +434,39 @@ impl State {
         });
     }
 
-    pub(crate) fn render(&mut self) -> StateResult<()> {
+    /// Example UI.
+    fn ui(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Organize windows").clicked() {
+                        ui.ctx().memory().reset_areas();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .button("Reset egui memory")
+                        .on_hover_text("Forget scroll, positions, sizes etc")
+                        .clicked()
+                    {
+                        *ui.ctx().memory() = Default::default();
+                        ui.close_menu();
+                    }
+                });
+            });
+        });
+        egui::Window::new("Test").resizable(true).show(ctx, |ui| {
+            let _test_button = ui.button("test button");
+            ui.allocate_space(ui.available_size())
+        });
+    }
+
+    pub(crate) fn render(
+        &mut self,
+        window: &Window,
+        egui_input: egui::RawInput,
+        egui_state: &mut egui_winit::State,
+        context: &mut egui::Context,
+    ) -> StateResult<()> {
         let output = self
             .surface
             .get_current_texture()
@@ -486,8 +528,56 @@ impl State {
             #[cfg(debug_assertions)]
             render_pass.pop_debug_group();
         }
+        {
+            context.begin_frame(egui_input);
+            self.ui(context);
+            let full_output = context.end_frame();
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+            let paint_jobs = context.tessellate(full_output.shapes);
+            egui_state.handle_platform_output(window, context, full_output.platform_output);
+
+            // Upload all resources for the GPU.
+            let size = window.inner_size();
+            let screen_descriptor = egui_wgpu::renderer::ScreenDescriptor {
+                size_in_pixels: size.into(),
+                pixels_per_point: window.scale_factor() as f32,
+            };
+            let tdelta: egui::TexturesDelta = full_output.textures_delta;
+            for (texture_id, image_delta) in tdelta.set.into_iter() {
+                self.egui_renderer.update_texture(
+                    &self.device,
+                    &self.queue,
+                    texture_id,
+                    &image_delta,
+                );
+            }
+            self.egui_renderer.update_buffers(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &paint_jobs,
+                &screen_descriptor,
+            );
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("GUI Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            // Record all render passes.
+            self.egui_renderer
+                .render(&mut render_pass, paint_jobs.as_slice(), &screen_descriptor);
+        }
+
+        self.queue.submit(iter::once(encoder.finish()));
         output.present();
 
         Ok(())
