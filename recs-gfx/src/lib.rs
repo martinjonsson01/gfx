@@ -227,6 +227,7 @@ impl GraphicsEngine {
     /// let transform = Transform {
     ///     position: Vector3::new(0.0, 10.0, 0.0),
     ///     rotation: Quaternion::zero(),
+    ///     scale: Vector3::new(1.0, 1.0, 1.0),
     /// };
     /// graphics_engine.create_object(model_handle, transform)?;
     /// #   Ok(())
@@ -258,6 +259,7 @@ impl GraphicsEngine {
     ///     .map(|_| Transform {
     ///         position: Vector3::zero(),
     ///         rotation: Quaternion::one(),
+    ///         scale: Vector3::new(1.0, 1.0, 1.0),
     ///     })
     ///     .collect();
     /// graphics_engine.create_objects(model_handle, transforms)?;
