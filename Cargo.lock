@@ -827,7 +827,6 @@ version = "0.1.0"
 dependencies = [
  "cgmath",
  "color-eyre",
- "pollster",
  "rand",
  "recs-gfx",
  "tracing",
@@ -2009,8 +2008,6 @@ dependencies = [
  "thiserror",
  "tobj",
  "tracing",
- "tracing-error",
- "tracing-subscriber",
  "wgpu",
  "winit",
 ]

@@ -6,7 +6,7 @@ use recs_gfx::{EngineResult, GraphicsEngine, Object, SimulationBuffer, Transform
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use tracing::{info, info_span, instrument};
+use tracing::{info, instrument};
 
 #[instrument]
 fn main() -> Result<(), Report> {
@@ -14,12 +14,6 @@ fn main() -> Result<(), Report> {
 
     color_eyre::install()?;
 
-    info_span!("gfx").in_scope(|| pollster::block_on(async_main()))?;
-
-    Ok(())
-}
-
-async fn async_main() -> Result<(), Report> {
     fn init_gfx(gfx: &mut GraphicsEngine<'_>) -> EngineResult<()> {
         let model = gfx.load_model(Path::new("cube.obj"))?;
 

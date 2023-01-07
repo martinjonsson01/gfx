@@ -45,9 +45,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Instant;
 use thiserror::Error;
-use tracing::dispatcher::DefaultGuard;
-use tracing::{error, instrument};
-use tracing_subscriber::filter::ParseError;
+use tracing::{error, info_span, instrument};
 use winit::window::Window;
 use winit::{
     event::*,
@@ -118,9 +116,6 @@ pub enum EngineError {
     /// Could not load model.
     #[error("could not load model `{1}`")]
     ModelLoad(#[source] Box<StateError>, PathBuf),
-    /// Could not create event filter from environment variable.
-    #[error("could not create event filter from environment variable")]
-    EnvironmentEventFilter(#[source] ParseError),
     /// Could not create a new object.
     #[error("a new object could not be created")]
     ObjectCreation(#[source] Box<StateError>),
@@ -146,15 +141,21 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 /// # Examples
 /// ```no_run
 /// # use std::error::Error;
-/// use recs_gfx::{EngineError, EngineResult, GraphicsEngine};
+/// use recs_gfx::{EngineError, EngineResult, GraphicsEngine, Object, SimulationBuffer};
 ///
 /// fn init_gfx(gfx: &mut GraphicsEngine<'_>) -> EngineResult<()> {
 ///     gfx.load_model(std::path::Path::new("path/to/model.obj"))?;
 ///     Ok(())
 /// }
+///
+/// fn simulate(queue: &SimulationBuffer<Vec<Object>>) {
+///     println!("testing {queue:?}");
+///     std::thread::sleep(std::time::Duration::from_secs(1));
+/// }
+///
 /// # fn main() -> Result<(), Box<dyn Error>> {
 ///
-/// recs_gfx::start(init_gfx)?;
+/// recs_gfx::start(init_gfx, simulate)?;
 /// #   Ok(())
 /// # }
 /// ```
@@ -170,12 +171,14 @@ where
 
     thread::scope(|scope| {
         let simulation_thread = scope.spawn(|| loop {
-            simulate(&object_queue);
+            info_span!("sim").in_scope(|| simulate(&object_queue));
         });
 
-        let mut gfx = GraphicsEngine::new(&object_queue)?;
-        initialize_gfx(&mut gfx)?;
-        gfx.run()?;
+        info_span!("gfx").in_scope(|| {
+            let mut gfx = GraphicsEngine::new(&object_queue)?;
+            initialize_gfx(&mut gfx)?;
+            gfx.run()
+        })?;
 
         simulation_thread.join().map_err(|e| {
             error!("{e:?}");
@@ -244,8 +247,6 @@ impl<'queue> GraphicsEngine<'queue> {
     /// ```
     #[instrument(skip(self))]
     pub fn run(mut self) -> EngineResult<()> {
-        let _guard = install_tracing()?;
-
         self.event_loop.run(move |event, _, control_flow| {
             let result = handle_events(
                 &self.window,
@@ -384,24 +385,6 @@ pub struct Object {
     pub model: ModelHandle,
     /// Which group of instances it belongs to.
     _instances_group: InstancesHandle,
-}
-
-fn install_tracing() -> EngineResult<DefaultGuard> {
-    use tracing_error::ErrorLayer;
-    use tracing_subscriber::prelude::*;
-    use tracing_subscriber::{fmt, EnvFilter};
-
-    let fmt_layer = fmt::layer().with_target(true);
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("warn"))
-        .map_err(EngineError::EnvironmentEventFilter)?;
-
-    let subscriber = tracing_subscriber::registry()
-        .with(filter_layer)
-        .with(fmt_layer)
-        .with(ErrorLayer::default());
-
-    Ok(tracing::subscriber::set_default(subscriber))
 }
 
 /// Whether an event should continue to propagate, or be consumed.

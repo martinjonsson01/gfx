@@ -6,7 +6,6 @@ authors = ["Martin Jonsson <martinjonsson01@gmail.com>"]
 
 [dependencies]
 recs-gfx = { path = "../recs-gfx" }     # For graphics
-pollster = "0.2"                        # To be able to await the recs-gfx run future
 tracing = "0.1.37"                      # For instrumenting to collect scoped, structured, and async-aware diagnostics
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] } # Tools for composing subscribers (to collect tracing data)
 tracing-error = "0.2.0"                 # Enriches error handling with tracing diagnostic information
