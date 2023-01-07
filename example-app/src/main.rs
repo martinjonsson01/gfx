@@ -10,7 +10,6 @@ use tracing::{info, instrument};
 struct SimulationContext {
     objects: Vec<Object>,
     last_update: Instant,
-    offset: bool,
 }
 
 impl SimulationContext {
@@ -18,7 +17,6 @@ impl SimulationContext {
         SimulationContext {
             objects: vec![],
             last_update: Instant::now(),
-            offset: true,
         }
     }
 
@@ -36,22 +34,16 @@ impl SimulationContext {
                     old_transform.position.normalize()
                 };
                 let rotation = Quaternion::from_axis_angle(rotation_axis, Deg(rotation_delta));
-                let mut new_transform = Transform {
+                let new_transform = Transform {
                     rotation: old_transform.rotation * rotation,
                     ..old_transform
                 };
-                if self.offset {
-                    new_transform.position.x += 3.0;
-                } else {
-                    new_transform.position.x -= 3.0;
-                }
                 object.transform = new_transform;
                 *object
             })
             .collect();
 
         queue.force_push(new_objects);
-        self.offset = !self.offset;
     }
 }
 
