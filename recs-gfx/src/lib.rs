@@ -241,23 +241,7 @@ impl GraphicsEngine {
     }
 
     /// Starts the graphics engine, opening a new window and rendering to it.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::error::Error;
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::{EngineError, GraphicsEngine};
-    ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// use std::rc::Rc;
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let graphics_engine = GraphicsEngine::new(queue.clone())?;
-    ///
-    /// graphics_engine.run()?;
-    /// #   Ok(())
-    /// # }
-    /// ```
-    pub fn run(mut self) -> EngineResult<()> {
+    fn run(mut self) -> EngineResult<()> {
         self.event_loop.run(move |event, _, control_flow| {
             let result = handle_events(
                 &self.window,
