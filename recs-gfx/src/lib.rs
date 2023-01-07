@@ -176,7 +176,7 @@ where
     // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
     // as opposed to a LIFO-queue.
     const TRANSFORM_BUFFER_SIZE: usize = 2;
-    let object_queue: Rc<ArrayQueue<Vec<_>>> = Rc::new(ArrayQueue::new(TRANSFORM_BUFFER_SIZE));
+    let object_queue = Rc::new(ArrayQueue::new(TRANSFORM_BUFFER_SIZE));
 
     thread::scope(|scope| {
         let gfx = info_span!("gfx").in_scope(|| {
