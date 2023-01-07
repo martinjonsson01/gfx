@@ -43,10 +43,10 @@ use crossbeam_queue::ArrayQueue;
 use derivative::Derivative;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use thiserror::Error;
 use tracing::dispatcher::DefaultGuard;
-use tracing::{error, info, instrument};
+use tracing::{error, instrument};
 use tracing_subscriber::filter::ParseError;
 use winit::window::Window;
 use winit::{
@@ -135,6 +135,9 @@ pub enum EngineError {
 /// Whether an engine operation failed or succeeded.
 pub type EngineResult<T, E = EngineError> = Result<T, E>;
 
+/// A buffer that contains simulation results that need to be rendered.
+pub type SimulationBuffer<T> = ArrayQueue<T>;
+
 /// Starts the engine.
 ///
 /// The render loop runs on the calling thread,
@@ -155,27 +158,29 @@ pub type EngineResult<T, E = EngineError> = Result<T, E>;
 /// #   Ok(())
 /// # }
 /// ```
-pub fn start<Func>(initialize_gfx: Func) -> EngineResult<()>
+pub fn start<InitFunc, SimFunc>(initialize_gfx: InitFunc, simulate: SimFunc) -> EngineResult<()>
 where
-    Func: FnOnce(&mut GraphicsEngine<'_>) -> EngineResult<()> + Send + Sync,
+    InitFunc: FnOnce(&mut GraphicsEngine<'_>) -> EngineResult<()> + Send + Sync,
+    SimFunc: Fn(&SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
 {
     // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
     // as opposed to a LIFO-queue.
     const TRANSFORM_BUFFER_SIZE: usize = 2;
     let object_queue: ArrayQueue<Vec<_>> = ArrayQueue::new(TRANSFORM_BUFFER_SIZE);
 
-    let simulation_thread = thread::spawn(move || loop {
-        info!("testing");
-        thread::sleep(Duration::from_secs(1))
-    });
+    thread::scope(|scope| {
+        let simulation_thread = scope.spawn(|| loop {
+            simulate(&object_queue);
+        });
 
-    let mut gfx = GraphicsEngine::new(&object_queue)?;
-    initialize_gfx(&mut gfx)?;
-    gfx.run()?;
+        let mut gfx = GraphicsEngine::new(&object_queue)?;
+        initialize_gfx(&mut gfx)?;
+        gfx.run()?;
 
-    simulation_thread.join().map_err(|e| {
-        error!("{e:?}");
-        EngineError::SimulationThreadPanic()
+        simulation_thread.join().map_err(|e| {
+            error!("{e:?}");
+            EngineError::SimulationThreadPanic()
+        })
     })
 }
 
@@ -191,12 +196,14 @@ pub struct GraphicsEngine<'queue> {
     event_loop: EventLoop<()>,
     state: State,
     last_render_time: Instant,
-    object_queue: &'queue ArrayQueue<Vec<Object>>,
+    object_queue: &'queue SimulationBuffer<Vec<Object>>,
 }
 
 impl<'queue> GraphicsEngine<'queue> {
     /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
-    pub fn new(object_queue: &'queue ArrayQueue<Vec<Object>>) -> EngineResult<GraphicsEngine> {
+    pub fn new(
+        object_queue: &'queue SimulationBuffer<Vec<Object>>,
+    ) -> EngineResult<GraphicsEngine> {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .build(&event_loop)

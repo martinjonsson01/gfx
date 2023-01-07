@@ -2,9 +2,11 @@ use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use rand::Rng;
-use recs_gfx::{EngineResult, GraphicsEngine, Transform};
+use recs_gfx::{EngineResult, GraphicsEngine, Object, SimulationBuffer, Transform};
 use std::path::Path;
-use tracing::{info_span, instrument};
+use std::thread;
+use std::time::Duration;
+use tracing::{info, info_span, instrument};
 
 #[instrument]
 fn main() -> Result<(), Report> {
@@ -27,7 +29,12 @@ async fn async_main() -> Result<(), Report> {
         Ok(())
     }
 
-    recs_gfx::start(init_gfx)?;
+    fn simulate(queue: &SimulationBuffer<Vec<Object>>) {
+        info!("testing {queue:?}");
+        thread::sleep(Duration::from_secs(1));
+    }
+
+    recs_gfx::start(init_gfx, simulate)?;
 
     Ok(())
 }
@@ -74,7 +81,7 @@ fn install_tracing() -> Result<(), Report> {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
 
-    let fmt_layer = fmt::layer().with_target(false);
+    let fmt_layer = fmt::layer().with_thread_ids(true).with_target(true);
     let filter_layer = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("warn"))?;
 
     tracing_subscriber::registry()
