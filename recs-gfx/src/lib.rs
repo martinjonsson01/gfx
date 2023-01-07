@@ -165,11 +165,11 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 /// ```
 pub fn start<InitFunc, SimFunc, Context>(
     mut context: Context,
-    initialize_gfx: InitFunc,
+    mut initialize_gfx: InitFunc,
     mut simulate: SimFunc,
 ) -> EngineResult<()>
 where
-    InitFunc: FnOnce(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
+    InitFunc: FnMut(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
     SimFunc: FnMut(&mut Context, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
     Context: Send + Sync,
 {
