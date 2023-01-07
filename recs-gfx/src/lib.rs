@@ -227,11 +227,13 @@ impl<'queue> GraphicsEngine<'queue> {
     /// use crossbeam_queue::ArrayQueue;
     /// use recs_gfx::{EngineError, GraphicsEngine};
     ///
+    /// # fn main() -> Result<(), Box<dyn Error>> {
     /// let queue = ArrayQueue::new(1);
     /// let graphics_engine = GraphicsEngine::new(&queue)?;
     ///
     /// graphics_engine.run()?;
-    /// # Ok::<(), recs_gfx::EngineError>(())
+    /// #   Ok(())
+    /// # }
     /// ```
     #[instrument(skip(self))]
     pub fn run(mut self) -> EngineResult<()> {
