@@ -46,10 +46,6 @@ impl ModelInstances {
         0..self.transforms.len() as u32
     }
 
-    pub fn transforms(&self) -> &[Transform] {
-        &self.transforms
-    }
-
     pub fn update_transforms(&mut self, device: &wgpu::Device, updated_transforms: Vec<Transform>) {
         let buffer = Self::create_buffer(device, &updated_transforms);
         self.transforms = updated_transforms;

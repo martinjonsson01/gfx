@@ -8,10 +8,11 @@ use crate::shader_locations::{
 use crate::state::StateError::ModelLoad;
 use crate::texture::Texture;
 use crate::uniform::{Uniform, UniformBinding};
-use crate::{resources, CameraUniform, EventPropagation};
+use crate::{resources, CameraUniform, EventPropagation, Object, SimulationBuffer};
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
 use derivative::Derivative;
+use itertools::Itertools;
 use std::iter;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -398,32 +399,21 @@ impl State {
         }
     }
 
-    pub(crate) fn update(&mut self, dt: Duration) {
+    pub(crate) fn update(&mut self, dt: Duration, buffer: &SimulationBuffer<Vec<Object>>) {
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_data(&self.queue, |camera_data| {
             camera_data.update_view_projection(&self.camera, &self.projection)
         });
 
-        // Animate instance rotation
-        let rotation_delta = 10.0 * dt.as_secs_f32();
-        for instances in &mut self.instances {
-            let new_transforms = instances
-                .transforms()
-                .iter()
-                .map(|old_transform| {
-                    let rotation_axis = if old_transform.position.is_zero() {
-                        Vector3::unit_z()
-                    } else {
-                        old_transform.position.normalize()
-                    };
-                    let rotation = Quaternion::from_axis_angle(rotation_axis, Deg(rotation_delta));
-                    Transform {
-                        rotation: old_transform.rotation * rotation,
-                        ..*old_transform
+        if let Some(objects) = buffer.pop() {
+            Itertools::group_by(objects.into_iter(), |object| object.instances_group)
+                .into_iter()
+                .for_each(|(instances_handle, object_instances)| {
+                    let transforms = object_instances.map(|object| object.transform).collect();
+                    if let Some(instances) = self.instances.get_mut(instances_handle) {
+                        instances.update_transforms(&self.device, transforms)
                     }
-                })
-                .collect();
-            instances.update_transforms(&self.device, new_transforms);
+                });
         }
 
         // Animate light rotation

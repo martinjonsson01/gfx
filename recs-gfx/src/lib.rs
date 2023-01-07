@@ -41,11 +41,13 @@ use cgmath::{Matrix4, SquareMatrix};
 use color_eyre::Report;
 use crossbeam_queue::ArrayQueue;
 use derivative::Derivative;
+use std::borrow::Borrow;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::thread;
 use std::time::Instant;
 use thiserror::Error;
-use tracing::{error, info_span, instrument};
+use tracing::{error, info, info_span, instrument};
 use winit::window::Window;
 use winit::{
     event::*,
@@ -143,43 +145,54 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 /// # use std::error::Error;
 /// use recs_gfx::{EngineError, EngineResult, GraphicsEngine, Object, SimulationBuffer};
 ///
-/// fn init_gfx(gfx: &mut GraphicsEngine<'_>) -> EngineResult<()> {
+/// struct SimulationData;
+///
+/// fn init_gfx(context: &mut SimulationData, gfx: &mut GraphicsEngine) -> EngineResult<()> {
 ///     gfx.load_model(std::path::Path::new("path/to/model.obj"))?;
 ///     Ok(())
 /// }
 ///
-/// fn simulate(queue: &SimulationBuffer<Vec<Object>>) {
+/// fn simulate(context: &mut SimulationData, queue: &SimulationBuffer<Vec<Object>>) {
 ///     println!("testing {queue:?}");
 ///     std::thread::sleep(std::time::Duration::from_secs(1));
 /// }
 ///
 /// # fn main() -> Result<(), Box<dyn Error>> {
 ///
-/// recs_gfx::start(init_gfx, simulate)?;
+/// recs_gfx::start(SimulationData, init_gfx, simulate)?;
 /// #   Ok(())
 /// # }
 /// ```
-pub fn start<InitFunc, SimFunc>(initialize_gfx: InitFunc, simulate: SimFunc) -> EngineResult<()>
+pub fn start<InitFunc, SimFunc, Context>(
+    mut context: Context,
+    initialize_gfx: InitFunc,
+    mut simulate: SimFunc,
+) -> EngineResult<()>
 where
-    InitFunc: FnOnce(&mut GraphicsEngine<'_>) -> EngineResult<()> + Send + Sync,
-    SimFunc: Fn(&SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
+    InitFunc: FnOnce(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
+    SimFunc: FnMut(&mut Context, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
+    Context: Send + Sync,
 {
     // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
     // as opposed to a LIFO-queue.
     const TRANSFORM_BUFFER_SIZE: usize = 2;
-    let object_queue: ArrayQueue<Vec<_>> = ArrayQueue::new(TRANSFORM_BUFFER_SIZE);
+    let object_queue: Rc<ArrayQueue<Vec<_>>> = Rc::new(ArrayQueue::new(TRANSFORM_BUFFER_SIZE));
 
     thread::scope(|scope| {
-        let simulation_thread = scope.spawn(|| loop {
-            info_span!("sim").in_scope(|| simulate(&object_queue));
-        });
-
-        info_span!("gfx").in_scope(|| {
-            let mut gfx = GraphicsEngine::new(&object_queue)?;
-            initialize_gfx(&mut gfx)?;
-            gfx.run()
+        let gfx = info_span!("gfx").in_scope(|| {
+            let mut gfx = GraphicsEngine::new(object_queue.clone())?;
+            initialize_gfx(&mut context, &mut gfx)?;
+            Ok(gfx)
         })?;
 
+        let object_queue = object_queue.borrow();
+        let simulation_thread = scope.spawn(|| loop {
+            info_span!("sim").in_scope(|| simulate(&mut context, object_queue));
+        });
+
+        gfx.run()?;
+
+        // Since gfx.run() never returns, this will only be reached if initialization went wrong.
         simulation_thread.join().map_err(|e| {
             error!("{e:?}");
             EngineError::SimulationThreadPanic()
@@ -190,7 +203,7 @@ where
 /// The core data structure of the rendering system.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct GraphicsEngine<'queue> {
+pub struct GraphicsEngine {
     window: Window,
     #[derivative(Debug = "ignore")]
     egui_context: egui::Context,
@@ -199,14 +212,12 @@ pub struct GraphicsEngine<'queue> {
     event_loop: EventLoop<()>,
     state: State,
     last_render_time: Instant,
-    object_queue: &'queue SimulationBuffer<Vec<Object>>,
+    object_queue: Rc<SimulationBuffer<Vec<Object>>>,
 }
 
-impl<'queue> GraphicsEngine<'queue> {
+impl GraphicsEngine {
     /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
-    pub fn new(
-        object_queue: &'queue SimulationBuffer<Vec<Object>>,
-    ) -> EngineResult<GraphicsEngine> {
+    pub fn new(object_queue: Rc<SimulationBuffer<Vec<Object>>>) -> EngineResult<GraphicsEngine> {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .build(&event_loop)
@@ -238,14 +249,14 @@ impl<'queue> GraphicsEngine<'queue> {
     /// use recs_gfx::{EngineError, GraphicsEngine};
     ///
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let queue = ArrayQueue::new(1);
-    /// let graphics_engine = GraphicsEngine::new(&queue)?;
+    /// use std::rc::Rc;
+    /// let queue = Rc::new(ArrayQueue::new(1));
+    /// let graphics_engine = GraphicsEngine::new(queue.clone())?;
     ///
     /// graphics_engine.run()?;
     /// #   Ok(())
     /// # }
     /// ```
-    #[instrument(skip(self))]
     pub fn run(mut self) -> EngineResult<()> {
         self.event_loop.run(move |event, _, control_flow| {
             let result = handle_events(
@@ -254,6 +265,7 @@ impl<'queue> GraphicsEngine<'queue> {
                 &mut self.egui_state,
                 &mut self.state,
                 &mut self.last_render_time,
+                self.object_queue.clone(),
                 event,
                 control_flow,
             );
@@ -274,8 +286,9 @@ impl<'queue> GraphicsEngine<'queue> {
     /// use recs_gfx::GraphicsEngine;
     ///
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let queue = ArrayQueue::new(1);
-    /// let mut graphics_engine = GraphicsEngine::new(&queue)?;
+    /// use std::rc::Rc;
+    /// let queue = Rc::new(ArrayQueue::new(1));
+    /// let mut graphics_engine = GraphicsEngine::new(queue.clone())?;
     ///
     /// let model_path = std::path::Path::new("path/to/model.obj");
     /// let model_handle = graphics_engine.load_model(model_path)?;
@@ -299,8 +312,9 @@ impl<'queue> GraphicsEngine<'queue> {
     /// use recs_gfx::{GraphicsEngine, Transform};
     ///
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let queue = ArrayQueue::new(1);
-    /// let mut graphics_engine = GraphicsEngine::new(&queue)?;
+    /// use std::rc::Rc;
+    /// let queue = Rc::new(ArrayQueue::new(1));
+    /// let mut graphics_engine = GraphicsEngine::new(queue.clone())?;
     ///
     /// let model_path = std::path::Path::new("path/to/model.obj");
     /// let model_handle = graphics_engine.load_model(model_path)?;
@@ -333,10 +347,11 @@ impl<'queue> GraphicsEngine<'queue> {
     /// use cgmath::{One, Quaternion, Vector3, Zero};
     /// use crossbeam_queue::ArrayQueue;
     /// use recs_gfx::{GraphicsEngine, Object, Transform};
+    /// use std::rc::Rc;
     ///
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let queue = ArrayQueue::new(1);
-    /// let mut graphics_engine = GraphicsEngine::new(&queue)?;
+    /// let queue = Rc::new(ArrayQueue::new(1));
+    /// let mut graphics_engine = GraphicsEngine::new(queue.clone())?;
     ///
     /// let model_path = std::path::Path::new("path/to/model.obj");
     /// let model_handle = graphics_engine.load_model(model_path)?;
@@ -370,7 +385,7 @@ impl<'queue> GraphicsEngine<'queue> {
             .map(|transform| Object {
                 transform,
                 model,
-                _instances_group: instances_group,
+                instances_group,
             })
             .collect())
     }
@@ -384,7 +399,7 @@ pub struct Object {
     /// Which visual representation to use.
     pub model: ModelHandle,
     /// Which group of instances it belongs to.
-    _instances_group: InstancesHandle,
+    instances_group: InstancesHandle,
 }
 
 /// Whether an event should continue to propagate, or be consumed.
@@ -396,12 +411,16 @@ pub(crate) enum EventPropagation {
     Propagate,
 }
 
+// This function could have taken just &mut GraphicsEngine, but the borrow checker won't allow
+// that, so we need to pass each field individually.
+#[allow(clippy::too_many_arguments)]
 fn handle_events(
     window: &Window,
     egui_context: &mut egui::Context,
     egui_state: &mut egui_winit::State,
     state: &mut State,
     last_render_time: &mut Instant,
+    queue: Rc<SimulationBuffer<Vec<Object>>>,
     event: Event<()>,
     control_flow: &mut ControlFlow,
 ) -> EngineResult<()> {
@@ -440,7 +459,10 @@ fn handle_events(
             let delta_time = now - *last_render_time;
             *last_render_time = now;
 
-            state.update(delta_time);
+            let fps = 1.0 / delta_time.as_secs_f32();
+            info!("fps: {fps}");
+
+            state.update(delta_time, queue.borrow());
 
             match state.render(window, input, egui_state, egui_context) {
                 Ok(_) => {}

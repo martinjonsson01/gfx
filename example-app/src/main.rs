@@ -4,9 +4,56 @@ use color_eyre::Report;
 use rand::Rng;
 use recs_gfx::{EngineResult, GraphicsEngine, Object, SimulationBuffer, Transform};
 use std::path::Path;
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{info, instrument};
+
+struct SimulationContext {
+    objects: Vec<Object>,
+    last_update: Instant,
+    offset: bool,
+}
+
+impl SimulationContext {
+    fn new() -> Self {
+        SimulationContext {
+            objects: vec![],
+            last_update: Instant::now(),
+            offset: true,
+        }
+    }
+
+    fn animate_rotation(&mut self, queue: &SimulationBuffer<Vec<Object>>, delta_time: &Duration) {
+        let rotation_delta = 10.0 * delta_time.as_secs_f32();
+
+        let new_objects: Vec<Object> = self
+            .objects
+            .iter_mut()
+            .map(|object| {
+                let old_transform = object.transform;
+                let rotation_axis = if old_transform.position.is_zero() {
+                    Vector3::unit_z()
+                } else {
+                    old_transform.position.normalize()
+                };
+                let rotation = Quaternion::from_axis_angle(rotation_axis, Deg(rotation_delta));
+                let mut new_transform = Transform {
+                    rotation: old_transform.rotation * rotation,
+                    ..old_transform
+                };
+                if self.offset {
+                    new_transform.position.x += 3.0;
+                } else {
+                    new_transform.position.x -= 3.0;
+                }
+                object.transform = new_transform;
+                *object
+            })
+            .collect();
+
+        queue.force_push(new_objects);
+        self.offset = !self.offset;
+    }
+}
 
 #[instrument]
 fn main() -> Result<(), Report> {
@@ -14,21 +61,27 @@ fn main() -> Result<(), Report> {
 
     color_eyre::install()?;
 
-    fn init_gfx(gfx: &mut GraphicsEngine<'_>) -> EngineResult<()> {
+    fn init_gfx(context: &mut SimulationContext, gfx: &mut GraphicsEngine) -> EngineResult<()> {
         let model = gfx.load_model(Path::new("cube.obj"))?;
 
         let transforms = create_transforms();
-        gfx.create_objects(model, transforms)?;
+        context.objects = gfx.create_objects(model, transforms)?;
 
         Ok(())
     }
 
-    fn simulate(queue: &SimulationBuffer<Vec<Object>>) {
-        info!("testing {queue:?}");
-        thread::sleep(Duration::from_secs(1));
+    info!("start");
+
+    fn simulate(context: &mut SimulationContext, queue: &SimulationBuffer<Vec<Object>>) {
+        let delta_time = Instant::now().duration_since(context.last_update);
+        context.last_update = Instant::now();
+        let fps = 1.0 / delta_time.as_secs_f32();
+        info!("fps: {fps}");
+
+        context.animate_rotation(queue, &delta_time);
     }
 
-    recs_gfx::start(init_gfx, simulate)?;
+    recs_gfx::start(SimulationContext::new(), init_gfx, simulate)?;
 
     Ok(())
 }

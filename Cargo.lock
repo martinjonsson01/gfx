@@ -2001,6 +2001,7 @@ dependencies = [
  "fs_extra",
  "glob",
  "image",
+ "itertools",
  "num_cpus",
  "palette",
  "pollster",
