@@ -26,6 +26,8 @@ egui = "0.20.1"         # For basic GUIs
 egui-wgpu = "0.20.0"    # To support rendering of GUIs from egui using wgpu
 egui-winit = "0.20.1"   # To support winit for egui
 derivative = "2.2.0"    # Better trait derives (e.g. derive Debug but ignore one field)
+crossbeam-queue = "0.3.8" # A lock-free concurrent queue
+pollster = "0.2"        # To be able to block on async functions
 
 [build-dependencies]
 anyhow = "1.0.67"       # For simple error handling

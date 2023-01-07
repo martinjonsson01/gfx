@@ -27,7 +27,7 @@ impl ModelInstances {
     }
 
     fn create_buffer(device: &wgpu::Device, transforms: &[Transform]) -> wgpu::Buffer {
-        let transform_data = transforms.iter().map(Transform::to_raw).collect::<Vec<_>>();
+        let transform_data = transforms.iter().map(Transform::as_raw).collect::<Vec<_>>();
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Transform Buffer"),
             contents: bytemuck::cast_slice(&transform_data),
@@ -58,7 +58,7 @@ impl ModelInstances {
 }
 
 /// Describes the placement and orientation of an object in the world.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Transform {
     /// The 3D translation of the object.
     pub position: Vector3<f32>,
@@ -68,7 +68,7 @@ pub struct Transform {
     pub scale: Vector3<f32>,
 }
 impl Transform {
-    pub(crate) fn to_raw(&self) -> TransformRaw {
+    pub(crate) fn as_raw(&self) -> TransformRaw {
         let model = Matrix4::from_translation(self.position)
             * Matrix4::from(self.rotation)
             * Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);

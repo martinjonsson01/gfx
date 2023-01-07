@@ -36,14 +36,17 @@ mod uniform;
 
 use crate::camera::{Camera, Projection};
 pub use crate::instance::Transform;
-use crate::state::{ModelHandle, State, StateError};
+use crate::state::{InstancesHandle, ModelHandle, State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
 use color_eyre::Report;
+use crossbeam_queue::ArrayQueue;
 use derivative::Derivative;
-use std::time::Instant;
+use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::dispatcher::DefaultGuard;
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 use tracing_subscriber::filter::ParseError;
 use winit::window::Window;
 use winit::{
@@ -114,21 +117,72 @@ pub enum EngineError {
     Rendering(#[source] Box<StateError>),
     /// Could not load model.
     #[error("could not load model `{1}`")]
-    ModelLoad(#[source] Box<StateError>, String),
+    ModelLoad(#[source] Box<StateError>, PathBuf),
     /// Could not create event filter from environment variable.
     #[error("could not create event filter from environment variable")]
     EnvironmentEventFilter(#[source] ParseError),
     /// Could not create a new object.
     #[error("a new object could not be created")]
     ObjectCreation(#[source] Box<StateError>),
+    /// Could not create a single new object.
+    #[error("a single new object could not be created")]
+    SingleObjectCreation(),
+    /// The simulation thread panicked.
+    #[error("the simulation thread panicked")]
+    SimulationThreadPanic(),
 }
 
-type EngineResult<T, E = EngineError> = Result<T, E>;
+/// Whether an engine operation failed or succeeded.
+pub type EngineResult<T, E = EngineError> = Result<T, E>;
+
+/// Starts the engine.
+///
+/// The render loop runs on the calling thread,
+/// while the simulation loop is started in a new thread.
+///
+/// # Examples
+/// ```no_run
+/// # use std::error::Error;
+/// use recs_gfx::{EngineError, EngineResult, GraphicsEngine};
+///
+/// fn init_gfx(gfx: &mut GraphicsEngine<'_>) -> EngineResult<()> {
+///     gfx.load_model(std::path::Path::new("path/to/model.obj"))?;
+///     Ok(())
+/// }
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///
+/// recs_gfx::start(init_gfx)?;
+/// #   Ok(())
+/// # }
+/// ```
+pub fn start<Func>(initialize_gfx: Func) -> EngineResult<()>
+where
+    Func: FnOnce(&mut GraphicsEngine<'_>) -> EngineResult<()> + Send + Sync,
+{
+    // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
+    // as opposed to a LIFO-queue.
+    const TRANSFORM_BUFFER_SIZE: usize = 2;
+    let object_queue: ArrayQueue<Vec<_>> = ArrayQueue::new(TRANSFORM_BUFFER_SIZE);
+
+    let simulation_thread = thread::spawn(move || loop {
+        info!("testing");
+        thread::sleep(Duration::from_secs(1))
+    });
+
+    let mut gfx = GraphicsEngine::new(&object_queue)?;
+    initialize_gfx(&mut gfx)?;
+    gfx.run()?;
+
+    simulation_thread.join().map_err(|e| {
+        error!("{e:?}");
+        EngineError::SimulationThreadPanic()
+    })
+}
 
 /// The core data structure of the rendering system.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct GraphicsEngine {
+pub struct GraphicsEngine<'queue> {
     window: Window,
     #[derivative(Debug = "ignore")]
     egui_context: egui::Context,
@@ -137,11 +191,12 @@ pub struct GraphicsEngine {
     event_loop: EventLoop<()>,
     state: State,
     last_render_time: Instant,
+    object_queue: &'queue ArrayQueue<Vec<Object>>,
 }
 
-impl GraphicsEngine {
+impl<'queue> GraphicsEngine<'queue> {
     /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
-    pub async fn new() -> EngineResult<GraphicsEngine> {
+    pub fn new(object_queue: &'queue ArrayQueue<Vec<Object>>) -> EngineResult<GraphicsEngine> {
         let event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .build(&event_loop)
@@ -151,9 +206,7 @@ impl GraphicsEngine {
         let mut egui_state = egui_winit::State::new(&event_loop);
         egui_state.set_pixels_per_point(window.scale_factor() as f32);
 
-        let state = State::new(&window)
-            .await
-            .map_err(|e| EngineError::StateConstruction(Box::new(e)))?;
+        let state = State::new(&window).map_err(|e| EngineError::StateConstruction(Box::new(e)))?;
 
         Ok(Self {
             window,
@@ -162,6 +215,7 @@ impl GraphicsEngine {
             event_loop,
             state,
             last_render_time: Instant::now(),
+            object_queue,
         })
     }
 
@@ -170,17 +224,17 @@ impl GraphicsEngine {
     /// # Examples
     /// ```no_run
     /// # use std::error::Error;
-    /// use recs_gfx::GraphicsEngine;
+    /// use crossbeam_queue::ArrayQueue;
+    /// use recs_gfx::{EngineError, GraphicsEngine};
     ///
-    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
-    /// let graphics_engine = GraphicsEngine::new().await?;
+    /// let queue = ArrayQueue::new(1);
+    /// let graphics_engine = GraphicsEngine::new(&queue)?;
     ///
-    /// graphics_engine.run().await?;
-    /// #   Ok(())
-    /// # }
+    /// graphics_engine.run()?;
+    /// # Ok::<(), recs_gfx::EngineError>(())
     /// ```
     #[instrument(skip(self))]
-    pub async fn run(mut self) -> EngineResult<()> {
+    pub fn run(mut self) -> EngineResult<()> {
         let _guard = install_tracing()?;
 
         self.event_loop.run(move |event, _, control_flow| {
@@ -206,22 +260,23 @@ impl GraphicsEngine {
     /// # Examples
     /// ```no_run
     /// # use std::error::Error;
+    /// use crossbeam_queue::ArrayQueue;
     /// use recs_gfx::GraphicsEngine;
     ///
-    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
-    /// let mut graphics_engine = GraphicsEngine::new().await?;
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    /// let queue = ArrayQueue::new(1);
+    /// let mut graphics_engine = GraphicsEngine::new(&queue)?;
     ///
-    /// let model_path: &str = "path/to/model.obj";
-    /// let model_handle = graphics_engine.load_model(model_path).await?;
+    /// let model_path = std::path::Path::new("path/to/model.obj");
+    /// let model_handle = graphics_engine.load_model(model_path)?;
     /// #   Ok(())
     /// # }
     /// ```
     #[instrument(skip(self))]
-    pub async fn load_model(&mut self, path: &str) -> EngineResult<ModelHandle> {
+    pub fn load_model(&mut self, path: &Path) -> EngineResult<ModelHandle> {
         self.state
             .load_model(path)
-            .await
-            .map_err(|e| EngineError::ModelLoad(Box::new(e), path.to_string()))
+            .map_err(|e| EngineError::ModelLoad(Box::new(e), path.to_owned()))
     }
 
     /// Creates an object in the world.
@@ -230,29 +285,34 @@ impl GraphicsEngine {
     /// ```no_run
     /// # use std::error::Error;
     /// use cgmath::{Quaternion, Vector3, Zero};
+    /// use crossbeam_queue::ArrayQueue;
     /// use recs_gfx::{GraphicsEngine, Transform};
     ///
-    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
-    /// let mut graphics_engine = GraphicsEngine::new().await?;
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    /// let queue = ArrayQueue::new(1);
+    /// let mut graphics_engine = GraphicsEngine::new(&queue)?;
     ///
-    /// let model_path: &str = "path/to/model.obj";
-    /// let model_handle = graphics_engine.load_model(model_path).await?;
+    /// let model_path = std::path::Path::new("path/to/model.obj");
+    /// let model_handle = graphics_engine.load_model(model_path)?;
     ///
     /// let transform = Transform {
     ///     position: Vector3::new(0.0, 10.0, 0.0),
     ///     rotation: Quaternion::zero(),
     ///     scale: Vector3::new(1.0, 1.0, 1.0),
     /// };
-    /// graphics_engine.create_object(model_handle, transform)?;
+    /// let object = graphics_engine.create_object(model_handle, transform)?;
     /// #   Ok(())
     /// # }
     /// ```
     #[instrument(skip(self))]
-    pub fn create_object(&mut self, model: ModelHandle, transform: Transform) -> EngineResult<()> {
-        self.state
-            .create_model_instances(model, vec![transform])
-            .map_err(|e| EngineError::ObjectCreation(Box::new(e)))?;
-        Ok(())
+    pub fn create_object(
+        &mut self,
+        model: ModelHandle,
+        transform: Transform,
+    ) -> EngineResult<Object> {
+        self.create_objects(model, vec![transform])?
+            .pop()
+            .ok_or_else(EngineError::SingleObjectCreation)
     }
 
     /// Creates multiple objects with the same model in the world.
@@ -261,22 +321,27 @@ impl GraphicsEngine {
     /// ```no_run
     /// # use std::error::Error;
     /// use cgmath::{One, Quaternion, Vector3, Zero};
-    /// use recs_gfx::{GraphicsEngine, Transform};
+    /// use crossbeam_queue::ArrayQueue;
+    /// use recs_gfx::{GraphicsEngine, Object, Transform};
     ///
-    /// # async fn async_main() -> Result<(), Box<dyn Error>> {
-    /// let mut graphics_engine = GraphicsEngine::new().await?;
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    /// let queue = ArrayQueue::new(1);
+    /// let mut graphics_engine = GraphicsEngine::new(&queue)?;
     ///
-    /// let model_path: &str = "path/to/model.obj";
-    /// let model_handle = graphics_engine.load_model(model_path).await?;
+    /// let model_path = std::path::Path::new("path/to/model.obj");
+    /// let model_handle = graphics_engine.load_model(model_path)?;
     ///
-    /// let transforms = (0..10)
+    /// const NUMBER_OF_TRANSFORMS: usize = 10;
+    /// let transforms = (0..NUMBER_OF_TRANSFORMS)
     ///     .map(|_| Transform {
     ///         position: Vector3::zero(),
     ///         rotation: Quaternion::one(),
     ///         scale: Vector3::new(1.0, 1.0, 1.0),
     ///     })
     ///     .collect();
-    /// graphics_engine.create_objects(model_handle, transforms)?;
+    /// let objects: Vec<Object> = graphics_engine.create_objects(model_handle, transforms)?;
+    ///
+    /// assert_eq!(objects.len(), NUMBER_OF_TRANSFORMS);
     /// #   Ok(())
     /// # }
     /// ```
@@ -285,12 +350,31 @@ impl GraphicsEngine {
         &mut self,
         model: ModelHandle,
         transforms: Vec<Transform>,
-    ) -> EngineResult<()> {
-        self.state
-            .create_model_instances(model, transforms)
+    ) -> EngineResult<Vec<Object>> {
+        let instances_group = self
+            .state
+            .create_model_instances(model, transforms.clone())
             .map_err(|e| EngineError::ObjectCreation(Box::new(e)))?;
-        Ok(())
+        Ok(transforms
+            .into_iter()
+            .map(|transform| Object {
+                transform,
+                model,
+                _instances_group: instances_group,
+            })
+            .collect())
     }
+}
+
+/// A graphical object that can be rendered.
+#[derive(Debug, Copy, Clone)]
+pub struct Object {
+    /// The orientation and location.
+    pub transform: Transform,
+    /// Which visual representation to use.
+    pub model: ModelHandle,
+    /// Which group of instances it belongs to.
+    _instances_group: InstancesHandle,
 }
 
 fn install_tracing() -> EngineResult<DefaultGuard> {

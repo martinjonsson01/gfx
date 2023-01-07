@@ -13,6 +13,7 @@ use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
 use derivative::Derivative;
 use std::iter;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use thiserror::Error;
 use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
@@ -31,7 +32,7 @@ pub enum StateError {
     #[error("the surface `{surface}` is not compatible with the available adapter `{adapter}`")]
     SurfaceIncompatibleWithAdapter { surface: String, adapter: String },
     #[error("failed to load model from path `{1}`")]
-    ModelLoad(#[source] resources::LoadError, String),
+    ModelLoad(#[source] resources::LoadError, Box<PathBuf>),
     #[error("failed to get output texture")]
     MissingOutputTexture(#[source] wgpu::SurfaceError),
     #[error("model handle `{0}` is invalid")]
@@ -102,15 +103,14 @@ pub type ModelHandle = usize;
 pub type InstancesHandle = usize;
 
 impl State {
-    pub(crate) async fn load_model(&mut self, path: &str) -> StateResult<ModelHandle> {
+    pub(crate) fn load_model(&mut self, path: &Path) -> StateResult<ModelHandle> {
         let obj_model = resources::load_model(
             path,
             &self.device,
             &self.queue,
             &self.material_bind_group_layout,
         )
-        .await
-        .map_err(|e| ModelLoad(e, path.to_string()))?;
+        .map_err(|e| ModelLoad(e, Box::new(path.to_owned())))?;
 
         let index = self.models.len();
         self.models.push(obj_model);
@@ -135,7 +135,7 @@ impl State {
 }
 
 impl State {
-    pub(crate) async fn new(window: &Window) -> StateResult<Self> {
+    pub(crate) fn new(window: &Window) -> StateResult<Self> {
         let size = window.inner_size();
 
         if size.width == 0 {
@@ -154,28 +154,33 @@ impl State {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         };
-        let adapter = instance
-            .request_adapter(&adapter_options)
-            .await
-            .ok_or_else(|| StateError::AdapterNotFound)?;
 
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
+        // Block on `request_adapter` and `request_device` to not bleed `async` into the client
+        // code. The benefit of async is being able to handle a lot of IO simultaneously, but this
+        // is only a one-off initialization step.
+        let adapter =
+            pollster::block_on(async { instance.request_adapter(&adapter_options).await })
+                .ok_or_else(|| StateError::AdapterNotFound)?;
+
+        let (device, queue) = pollster::block_on(async {
+            adapter
+                .request_device(
+                    &wgpu::DeviceDescriptor {
+                        features: wgpu::Features::empty(),
+                        // WebGL doesn't support all of wgpu's features, so if
+                        // we're building for the web we'll have to disable some.
+                        limits: if cfg!(target_arch = "wasm32") {
+                            wgpu::Limits::downlevel_webgl2_defaults()
+                        } else {
+                            wgpu::Limits::default()
+                        },
+                        label: None,
                     },
-                    label: None,
-                },
-                None,
-            )
-            .await
-            .map_err(StateError::DeviceNotFound)?;
+                    None,
+                )
+                .await
+        })
+        .map_err(StateError::DeviceNotFound)?;
 
         let surface_format = *surface
             .get_supported_formats(&adapter)
@@ -248,15 +253,14 @@ impl State {
             .binding(UniformBinding(0))
             .build();
 
-        let light_model_file_name = "cube.obj";
+        let light_model_file_name = Path::new("cube.obj");
         let light_model = resources::load_model(
             light_model_file_name,
             &device,
             &queue,
             &material_bind_group_layout,
         )
-        .await
-        .map_err(|e| ModelLoad(e, light_model_file_name.to_string()))?;
+        .map_err(|e| ModelLoad(e, Box::new(light_model_file_name.to_owned())))?;
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

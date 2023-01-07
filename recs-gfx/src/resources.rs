@@ -5,6 +5,7 @@ use cgmath::{InnerSpace, Vector2, Vector3, Vector4, Zero};
 use image::Rgb;
 use std::io;
 use std::io::{BufReader, Cursor};
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::warn;
 use wgpu::util::DeviceExt;
@@ -15,11 +16,11 @@ const ASSETS_PATH: &str = "assets";
 #[derive(Error, Debug)]
 pub enum LoadError {
     #[error("failed to load string from path `{1}`")]
-    String(#[source] io::Error, String),
+    String(#[source] io::Error, PathBuf),
     #[error("failed to load texture at path `{1}`")]
-    Texture(#[source] texture::TextureError, String),
+    Texture(#[source] texture::TextureError, PathBuf),
     #[error("failed to load bytes from binary file at path `{1}`")]
-    Binary(#[source] io::Error, String),
+    Binary(#[source] io::Error, PathBuf),
     #[error("failed to load meshes from OBJ buffer")]
     Mesh(#[source] tobj::LoadError),
     #[error("failed to load materials from OBJ buffer")]
@@ -38,74 +39,84 @@ impl LoadError {
     }
 }
 
-pub async fn load_string(file_name: &str) -> Result<String> {
-    let path = std::path::Path::new(env!("OUT_DIR"))
-        .join(ASSETS_PATH)
-        .join(file_name);
+pub fn load_string(file_path: &Path) -> Result<String> {
+    let path = Path::new(env!("OUT_DIR")).join(ASSETS_PATH).join(file_path);
     let txt =
-        std::fs::read_to_string(path).map_err(|e| LoadError::String(e, file_name.to_string()))?;
+        std::fs::read_to_string(path).map_err(|e| LoadError::String(e, file_path.to_owned()))?;
     Ok(txt)
 }
 
-pub async fn load_binary(file_name: &str) -> Result<Vec<u8>> {
-    let path = std::path::Path::new(env!("OUT_DIR"))
-        .join(ASSETS_PATH)
-        .join(file_name);
-    let data = std::fs::read(path).map_err(|e| LoadError::Binary(e, file_name.to_string()))?;
+pub fn load_binary(file_path: &Path) -> Result<Vec<u8>> {
+    let path = Path::new(env!("OUT_DIR")).join(ASSETS_PATH).join(file_path);
+    let data = std::fs::read(path).map_err(|e| LoadError::Binary(e, file_path.to_owned()))?;
     Ok(data)
 }
 
-pub async fn load_texture(
-    file_name: &str,
+pub fn load_texture(
+    file_path: &Path,
     is_normal_map: bool,
     device: &Device,
     queue: &Queue,
 ) -> Result<Texture> {
-    let data = load_binary(file_name).await?;
-    Texture::from_bytes(device, queue, &data, Some(file_name), is_normal_map)
-        .map_err(|e| LoadError::Texture(e, file_name.to_string()))
+    let data = load_binary(file_path)?;
+    let file_name = file_path.to_string_lossy();
+    Texture::from_bytes(
+        device,
+        queue,
+        &data,
+        Some(file_name.as_ref()),
+        is_normal_map,
+    )
+    .map_err(|e| LoadError::Texture(e, file_path.to_owned()))
 }
 
-pub async fn load_model(
-    file_name: &str,
+pub fn load_model(
+    file_path: &Path,
     device: &Device,
     queue: &Queue,
     layout: &wgpu::BindGroupLayout,
 ) -> Result<Model> {
-    let obj_text = load_string(file_name).await?;
+    let obj_text = load_string(file_path)?;
     let obj_cursor = Cursor::new(obj_text);
     let mut obj_reader = BufReader::new(obj_cursor);
 
-    let (models, obj_materials) = tobj::load_obj_buf_async(
-        &mut obj_reader,
-        &tobj::GPU_LOAD_OPTIONS,
-        |material_name| async move {
-            let mat_text = load_string(&material_name).await.map_err(|e| {
+    let (models, obj_materials) =
+        tobj::load_obj_buf(&mut obj_reader, &tobj::GPU_LOAD_OPTIONS, |material_name| {
+            let mat_text = load_string(material_name).map_err(|e| {
                 e.into_tobj_error()
                     .expect("LoadError::String can always be converted into tobj::Error")
             })?;
             tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
-        },
-    )
-    .await
-    .map_err(LoadError::Mesh)?;
+        })
+        .map_err(LoadError::Mesh)?;
 
     let mut materials = Vec::new();
     for m in obj_materials.map_err(LoadError::Materials)? {
         let diffuse_texture = if m.diffuse_texture.is_empty() {
             None
         } else {
-            Some(load_texture(&m.diffuse_texture, false, device, queue).await?)
+            Some(load_texture(
+                Path::new(&m.diffuse_texture),
+                false,
+                device,
+                queue,
+            )?)
         };
         let normal_texture = if m.normal_texture.is_empty() {
             // If no custom normal map is present, use a single-pixel normal map, as this is the
             // same as performing no normal-mapping at all (uses per-vertex normals instead).
             // (128, 128, 255) maps to (0, 0, 1) since normal coordinates are [-1, 1]
             let orthogonal_normal = Rgb([128, 128, 255]);
-            Texture::from_pixel(device, queue, orthogonal_normal, Some(file_name))
-                .map_err(|e| LoadError::Texture(e, file_name.to_string()))
+            let file_name = file_path.to_string_lossy();
+            Texture::from_pixel(device, queue, orthogonal_normal, Some(file_name.as_ref()))
+                .map_err(|e| LoadError::Texture(e, file_path.to_owned()))
         } else {
-            Ok(load_texture(&m.normal_texture, true, device, queue).await?)
+            Ok(load_texture(
+                Path::new(&m.normal_texture),
+                true,
+                device,
+                queue,
+            )?)
         }?;
 
         materials.push(Material::new(
@@ -161,18 +172,18 @@ pub async fn load_model(
             calculate_tangents_bitangents(&m, &mut vertices);
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{file_name:?} Vertex Buffer")),
+                label: Some(&format!("{file_path:?} Vertex Buffer")),
                 contents: bytemuck::cast_slice(&vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             });
             let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{file_name:?} Index Buffer")),
+                label: Some(&format!("{file_path:?} Index Buffer")),
                 contents: bytemuck::cast_slice(&m.mesh.indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
 
             Mesh {
-                name: file_name.to_string(),
+                name: file_path.to_string_lossy().to_string(),
                 vertex_buffer,
                 index_buffer,
                 num_elements: m.mesh.indices.len() as u32,

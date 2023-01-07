@@ -2,7 +2,8 @@ use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use rand::Rng;
-use recs_gfx::{GraphicsEngine, Transform};
+use recs_gfx::{EngineResult, GraphicsEngine, Transform};
+use std::path::Path;
 use tracing::{info_span, instrument};
 
 #[instrument]
@@ -17,14 +18,17 @@ fn main() -> Result<(), Report> {
 }
 
 async fn async_main() -> Result<(), Report> {
-    let mut gfx = GraphicsEngine::new().await?;
+    fn init_gfx(gfx: &mut GraphicsEngine<'_>) -> EngineResult<()> {
+        let model = gfx.load_model(Path::new("cube.obj"))?;
 
-    let model = gfx.load_model("cube.obj").await?;
+        let transforms = create_transforms();
+        gfx.create_objects(model, transforms)?;
 
-    let transforms = create_transforms();
-    gfx.create_objects(model, transforms)?;
+        Ok(())
+    }
 
-    gfx.run().await?;
+    recs_gfx::start(init_gfx)?;
+
     Ok(())
 }
 
