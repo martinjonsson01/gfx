@@ -27,6 +27,7 @@
 )]
 
 mod camera;
+mod engine;
 mod instance;
 mod model;
 mod resources;
@@ -165,7 +166,6 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 ///     time: &UpdateRate,
 ///     queue: &SimulationBuffer<Vec<Object>>,
 /// ) {
-///     ///
 ///     println!("testing {queue:?}");
 ///     std::thread::sleep(std::time::Duration::from_secs(1));
 /// }
@@ -176,15 +176,14 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 /// #   Ok(())
 /// # }
 /// ```
-pub fn start<InitFunc, SimFunc, Context>(
+pub fn start<InitFn, SimFn, Context>(
     mut context: Context,
-    mut initialize_gfx: InitFunc,
-    mut simulate: SimFunc,
+    mut initialize_gfx: InitFn,
+    mut simulate: SimFn,
 ) -> EngineResult<()>
 where
-    InitFunc: FnMut(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
-    SimFunc:
-        FnMut(&mut Context, &UpdateRate, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
+    InitFn: FnMut(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
+    SimFn: FnMut(&mut Context, &UpdateRate, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
     Context: Send + Sync,
 {
     // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
