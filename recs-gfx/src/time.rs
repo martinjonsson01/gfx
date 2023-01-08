@@ -41,7 +41,7 @@ pub struct UpdateRate {
     /// Stores the time samples used for averages.
     ///
     /// New samples lie in the back (`push_back`) and old samples lie in the front (`pop_front`).
-    average_buffer: VecDeque<Duration>,
+    average_delta_time_buffer: VecDeque<Duration>,
 }
 
 impl UpdateRate {
@@ -53,47 +53,47 @@ impl UpdateRate {
         Self {
             last_update,
             delta_time: Duration::ZERO,
-            average_buffer: VecDeque::with_capacity(average_buffer_size),
+            average_delta_time_buffer: VecDeque::with_capacity(average_buffer_size),
         }
     }
 
     /// Informs about a new moment in time, e.g. when a new tick has begun.
     pub fn update_time(&mut self, now: Instant) {
         self.delta_time = now - self.last_update;
-        self.add_time_sample(self.delta_time);
+        self.add_delta_time_sample(self.delta_time);
         self.last_update = now;
     }
 
-    /// Informs about new time-samples about how long something has taken.
+    /// Informs about new delta_time-samples describing how fast something is progressing.
     ///
     /// Accepts an arbitrary number of samples, but discards the oldest ones if the total count
     /// exceeds `average_buffer_size`.
-    pub fn update_from_samples<Iter>(&mut self, iter: Iter)
+    pub fn update_from_delta_samples<Iter>(&mut self, iter: Iter)
     where
         Iter: IntoIterator<Item = Duration>,
     {
         iter.into_iter()
-            .for_each(|sample| self.add_time_sample(sample));
+            .for_each(|sample| self.add_delta_time_sample(sample));
     }
 
-    fn add_time_sample(&mut self, sample: Duration) {
-        if self.average_buffer.len() == self.average_buffer.capacity() {
-            self.average_buffer.pop_front(); // Discard the oldest sample.
+    fn add_delta_time_sample(&mut self, sample: Duration) {
+        if self.average_delta_time_buffer.len() == self.average_delta_time_buffer.capacity() {
+            self.average_delta_time_buffer.pop_front(); // Discard the oldest sample.
         }
-        self.average_buffer.push_back(sample);
+        self.average_delta_time_buffer.push_back(sample);
     }
 
     /// Calculates the average number of frames per second, based on a number of time samples
     /// gathered previously.
     pub fn average_fps(&self) -> f32 {
-        let duration_sample_count = self.average_buffer.len() as u32;
-        let average_duration =
-            Duration::sum(self.average_buffer.iter()) / std::cmp::max(1, duration_sample_count);
+        let duration_sample_count = self.average_delta_time_buffer.len() as u32;
+        let average_duration = Duration::sum(self.average_delta_time_buffer.iter())
+            / std::cmp::max(1, duration_sample_count);
         1.0 / average_duration.as_secs_f32()
     }
 
     fn average_sample_count(&self) -> u32 {
-        self.average_buffer.len() as u32
+        self.average_delta_time_buffer.len() as u32
     }
 }
 
@@ -121,9 +121,9 @@ mod tests {
         }
     }
     prop_compose! {
-        fn arb_buffersize_and_sample_count(max_buffer_size: usize, max_sample_count: usize)
+        fn arb_buffersize_and_sample_count(max_buffer_size: usize, min_sample_count: usize, max_sample_count: usize)
                                           (buffer_size in 1_usize..=max_buffer_size)
-                                          (sample in 1..=max_sample_count, buffer_size in Just(buffer_size))
+                                          (sample in min_sample_count..=max_sample_count, buffer_size in Just(buffer_size))
                                           -> (usize, u64) {
            (buffer_size, sample as u64)
        }
@@ -144,7 +144,7 @@ mod tests {
 
     #[proptest]
     fn update_time_vacates_old_samples_from_buffer(
-        #[strategy(arb_buffersize_and_sample_count(5_usize, 10_usize))] tuple: (usize, u64),
+        #[strategy(arb_buffersize_and_sample_count(5, 1, 10))] tuple: (usize, u64),
     ) {
         let (buffer_size, new_sample_count) = tuple;
         let beginning = Instant::now();
@@ -160,6 +160,34 @@ mod tests {
             update_rate.update_time(later);
         }
 
-        assert_eq!(update_rate.average_buffer.pop_back().unwrap().as_secs(), 2)
+        assert_eq!(
+            update_rate
+                .average_delta_time_buffer
+                .pop_back()
+                .unwrap()
+                .as_secs(),
+            2
+        )
+    }
+
+    #[proptest]
+    fn update_from_samples_vacates_overflowing_samples(
+        #[strategy(arb_buffersize_and_sample_count(5, 6, 10))] tuple: (usize, u64),
+    ) {
+        let (buffer_size, new_sample_count) = tuple;
+        let beginning = Instant::now();
+        let mut update_rate = UpdateRate::new(beginning, buffer_size);
+
+        let samples = (0..new_sample_count).map(Duration::from_secs);
+        update_rate.update_from_delta_samples(samples);
+
+        assert_eq!(
+            update_rate
+                .average_delta_time_buffer
+                .pop_back()
+                .unwrap()
+                .as_secs(),
+            new_sample_count - 1
+        )
     }
 }

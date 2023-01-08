@@ -483,7 +483,7 @@ fn handle_events(
 
             time.render.update_time(Instant::now());
             time.simulation
-                .update_from_samples(simulation_rate_receiver.try_iter());
+                .update_from_delta_samples(simulation_rate_receiver.try_iter());
 
             let render_rate = &time.render;
             info!("gfx {render_rate}");
