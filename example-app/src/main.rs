@@ -4,20 +4,16 @@ use color_eyre::Report;
 use rand::Rng;
 use recs_gfx::{EngineResult, GraphicsEngine, Object, SimulationBuffer, Transform};
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{info, instrument};
 
 struct SimulationContext {
     objects: Vec<Object>,
-    last_update: Instant,
 }
 
 impl SimulationContext {
     fn new() -> Self {
-        SimulationContext {
-            objects: vec![],
-            last_update: Instant::now(),
-        }
+        SimulationContext { objects: vec![] }
     }
 
     fn animate_rotation(&mut self, queue: &SimulationBuffer<Vec<Object>>, delta_time: &Duration) {
@@ -64,13 +60,12 @@ fn main() -> Result<(), Report> {
 
     info!("start");
 
-    fn simulate(context: &mut SimulationContext, queue: &SimulationBuffer<Vec<Object>>) {
-        let delta_time = Instant::now().duration_since(context.last_update);
-        context.last_update = Instant::now();
-        let fps = 1.0 / delta_time.as_secs_f32();
-        info!("fps: {fps}");
-
-        context.animate_rotation(queue, &delta_time);
+    fn simulate(
+        context: &mut SimulationContext,
+        delta_time: &Duration,
+        queue: &SimulationBuffer<Vec<Object>>,
+    ) {
+        context.animate_rotation(queue, delta_time);
     }
 
     recs_gfx::start(SimulationContext::new(), init_gfx, simulate)?;

@@ -39,15 +39,19 @@ pub use crate::instance::Transform;
 use crate::state::{InstancesHandle, ModelHandle, State, StateError};
 use cgmath::{Matrix4, SquareMatrix};
 use color_eyre::Report;
+use crossbeam_channel::{unbounded, Receiver, SendError};
 use crossbeam_queue::ArrayQueue;
 use derivative::Derivative;
+use std::any::Any;
 use std::borrow::Borrow;
+use std::collections::VecDeque;
+use std::iter::Sum;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use std::{cmp, thread};
 use thiserror::Error;
-use tracing::{error, info, info_span, instrument};
+use tracing::{error, info_span, instrument, trace};
 use winit::window::Window;
 use winit::{
     event::*,
@@ -125,8 +129,11 @@ pub enum EngineError {
     #[error("a single new object could not be created")]
     SingleObjectCreation(),
     /// The simulation thread panicked.
-    #[error("the simulation thread panicked")]
-    SimulationThreadPanic(),
+    #[error("the simulation thread panicked with error `{0}`")]
+    SimulationThreadPanic(String),
+    /// The rendering thread has closed, causing the simulation thread to not be able to send it data.
+    #[error("the rendering thread has closed")]
+    RenderingThreadClosed(#[source] SendError<Duration>),
 }
 
 /// Whether an engine operation failed or succeeded.
@@ -170,13 +177,15 @@ pub fn start<InitFunc, SimFunc, Context>(
 ) -> EngineResult<()>
 where
     InitFunc: FnMut(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
-    SimFunc: FnMut(&mut Context, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
+    SimFunc: FnMut(&mut Context, &Duration, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
     Context: Send + Sync,
 {
     // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
     // as opposed to a LIFO-queue.
     const TRANSFORM_BUFFER_SIZE: usize = 2;
     let object_queue = Rc::new(ArrayQueue::new(TRANSFORM_BUFFER_SIZE));
+
+    let (simulation_rate_sender, simulation_rate_receiver) = unbounded();
 
     thread::scope(|scope| {
         let gfx = info_span!("gfx").in_scope(|| {
@@ -186,18 +195,41 @@ where
         })?;
 
         let object_queue = object_queue.borrow();
-        let simulation_thread = scope.spawn(|| loop {
-            info_span!("sim").in_scope(|| simulate(&mut context, object_queue));
+        let simulation_thread = scope.spawn(|| {
+            let mut last_update = Instant::now();
+            loop {
+                let delta_time = Instant::now().duration_since(last_update);
+                last_update = Instant::now();
+                simulation_rate_sender
+                    .send(delta_time)
+                    .map_err(EngineError::RenderingThreadClosed)
+                    .expect("rendering thread should be alive");
+
+                info_span!("sim").in_scope(|| {
+                    simulate(&mut context, &delta_time, object_queue);
+                });
+            }
         });
 
-        gfx.run()?;
+        gfx.run(simulation_rate_receiver)?;
 
         // Since gfx.run() never returns, this will only be reached if initialization went wrong.
-        simulation_thread.join().map_err(|e| {
-            error!("{e:?}");
-            EngineError::SimulationThreadPanic()
-        })
+        simulation_thread
+            .join()
+            .map_err(|e| EngineError::SimulationThreadPanic(convert_panic_err_to_str(e)))
     })
+}
+
+fn convert_panic_err_to_str(panic_error: Box<dyn Any + Send>) -> String {
+    if let Some(error_text) = panic_error.downcast_ref::<Box<&'static str>>() {
+        error_text.to_string()
+    } else if let Some(error_text) = panic_error.downcast_ref::<String>() {
+        error_text.to_string()
+    } else if let Some(error_text) = panic_error.downcast_ref::<&'static str>() {
+        error_text.to_string()
+    } else {
+        "".to_string()
+    }
 }
 
 /// The core data structure of the rendering system.
@@ -212,8 +244,11 @@ pub struct GraphicsEngine {
     event_loop: EventLoop<()>,
     state: State,
     last_render_time: Instant,
+    last_render_durations: VecDeque<Duration>,
     object_queue: Rc<SimulationBuffer<Vec<Object>>>,
 }
+
+const AVERAGE_FPS_SAMPLES: u32 = 32;
 
 impl GraphicsEngine {
     /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
@@ -236,12 +271,13 @@ impl GraphicsEngine {
             event_loop,
             state,
             last_render_time: Instant::now(),
+            last_render_durations: VecDeque::with_capacity(AVERAGE_FPS_SAMPLES as usize),
             object_queue,
         })
     }
 
     /// Starts the graphics engine, opening a new window and rendering to it.
-    fn run(mut self) -> EngineResult<()> {
+    fn run(mut self, simulation_rate_receiver: Receiver<Duration>) -> EngineResult<()> {
         self.event_loop.run(move |event, _, control_flow| {
             let result = handle_events(
                 &self.window,
@@ -249,7 +285,9 @@ impl GraphicsEngine {
                 &mut self.egui_state,
                 &mut self.state,
                 &mut self.last_render_time,
+                &mut self.last_render_durations,
                 self.object_queue.clone(),
+                &simulation_rate_receiver,
                 event,
                 control_flow,
             );
@@ -404,7 +442,9 @@ fn handle_events(
     egui_state: &mut egui_winit::State,
     state: &mut State,
     last_render_time: &mut Instant,
+    last_render_durations: &mut VecDeque<Duration>,
     queue: Rc<SimulationBuffer<Vec<Object>>>,
+    simulation_rate_receiver: &Receiver<Duration>,
     event: Event<()>,
     control_flow: &mut ControlFlow,
 ) -> EngineResult<()> {
@@ -441,10 +481,23 @@ fn handle_events(
 
             let now = Instant::now();
             let delta_time = now - *last_render_time;
+            if last_render_durations.len() == last_render_durations.capacity() {
+                last_render_durations.pop_front();
+            }
+            last_render_durations.push_back(delta_time);
             *last_render_time = now;
 
-            let fps = 1.0 / delta_time.as_secs_f32();
-            info!("fps: {fps}");
+            let duration_sample_count = last_render_durations.len() as u32;
+            let average_duration =
+                Duration::sum(last_render_durations.iter()) / cmp::max(1, duration_sample_count);
+            let render_fps = 1.0 / average_duration.as_secs_f32();
+            trace!("gfx {render_fps} fps (average over {duration_sample_count} ticks)");
+
+            let simulation_rate_messages = simulation_rate_receiver.len() as u32;
+            let average_simulation_time = Duration::sum(simulation_rate_receiver.try_iter())
+                / cmp::max(1, simulation_rate_messages);
+            let simulation_fps = 1.0 / average_simulation_time.as_secs_f32();
+            trace!("sim {simulation_fps} fps (average over {simulation_rate_messages} ticks)");
 
             state.update(delta_time, queue.borrow());
 
