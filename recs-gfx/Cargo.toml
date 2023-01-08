@@ -38,6 +38,7 @@ glob = "0.3.0"          # For querying the file system in a unix-manner
 criterion = { version = "0.4.0", features = ["html_reports"] } # For benchmarking
 proptest = "1.0.0"      # Property-based testing tools and harness
 test-strategy = "0.2.1" # Prop-test macros that are more ergonomic than the ones from proptest
+approx = "0.5.1"        # For approximate floating-point comparisons
 
 [[bench]]
 name = "gfx_bench"

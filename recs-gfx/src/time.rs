@@ -108,6 +108,8 @@ impl std::fmt::Display for UpdateRate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use approx::assert_ulps_eq;
     use proptest::prelude::*;
     use std::ops::Add;
 
@@ -189,5 +191,17 @@ mod tests {
                 .as_secs(),
             new_sample_count - 1
         )
+    }
+
+    #[proptest]
+    fn frame_rate_depends_on_time_between_updates(#[strategy(1_f32..60_f32)] fps: f32) {
+        let beginning = Instant::now();
+        let time_passed = Duration::from_secs_f32(1.0 / fps);
+        let later = beginning.add(time_passed);
+        let mut update_rate = UpdateRate::new(beginning, 1);
+
+        update_rate.update_time(later);
+
+        assert_ulps_eq!(update_rate.average_fps(), fps);
     }
 }
