@@ -7,6 +7,7 @@ use crate::shader_locations::{
 };
 use crate::state::StateError::ModelLoad;
 use crate::texture::Texture;
+use crate::time::UpdateRate;
 use crate::uniform::{Uniform, UniformBinding};
 use crate::{resources, CameraUniform, EventPropagation, Object, SimulationBuffer};
 use cgmath::prelude::*;
@@ -15,7 +16,6 @@ use derivative::Derivative;
 use itertools::Itertools;
 use std::iter;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use thiserror::Error;
 use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
 use winit::window::Window;
@@ -399,8 +399,9 @@ impl State {
         }
     }
 
-    pub(crate) fn update(&mut self, dt: Duration, buffer: &SimulationBuffer<Vec<Object>>) {
-        self.camera_controller.update_camera(&mut self.camera, dt);
+    pub(crate) fn update(&mut self, time: &UpdateRate, buffer: &SimulationBuffer<Vec<Object>>) {
+        self.camera_controller
+            .update_camera(&mut self.camera, time.delta_time);
         self.camera_uniform.update_data(&self.queue, |camera_data| {
             camera_data.update_view_projection(&self.camera, &self.projection)
         });
@@ -422,7 +423,7 @@ impl State {
             let old_position: Vector3<_> = light.position.into();
             let rotation = Quaternion::from_axis_angle(
                 Vector3::unit_y(),
-                Deg(DEGREES_PER_SECOND * dt.as_secs_f32()),
+                Deg(DEGREES_PER_SECOND * time.delta_time.as_secs_f32()),
             );
             light.position = (rotation * old_position).into();
         });

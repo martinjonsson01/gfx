@@ -2,6 +2,7 @@ use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use rand::Rng;
+use recs_gfx::time::UpdateRate;
 use recs_gfx::{EngineResult, GraphicsEngine, Object, SimulationBuffer, Transform};
 use std::path::Path;
 use std::time::Duration;
@@ -62,10 +63,10 @@ fn main() -> Result<(), Report> {
 
     fn simulate(
         context: &mut SimulationContext,
-        delta_time: &Duration,
+        time: &UpdateRate,
         queue: &SimulationBuffer<Vec<Object>>,
     ) {
-        context.animate_rotation(queue, delta_time);
+        context.animate_rotation(queue, &time.delta_time);
     }
 
     recs_gfx::start(SimulationContext::new(), init_gfx, simulate)?;

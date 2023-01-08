@@ -32,11 +32,13 @@ mod model;
 mod resources;
 mod state;
 mod texture;
+pub mod time;
 mod uniform;
 
 use crate::camera::{Camera, Projection};
 pub use crate::instance::Transform;
 use crate::state::{InstancesHandle, ModelHandle, State, StateError};
+use crate::time::{Time, UpdateRate};
 use cgmath::{Matrix4, SquareMatrix};
 use color_eyre::Report;
 use crossbeam_channel::{unbounded, Receiver, SendError};
@@ -44,14 +46,12 @@ use crossbeam_queue::ArrayQueue;
 use derivative::Derivative;
 use std::any::Any;
 use std::borrow::Borrow;
-use std::collections::VecDeque;
-use std::iter::Sum;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{cmp, thread};
 use thiserror::Error;
-use tracing::{error, info_span, instrument, trace};
+use tracing::{error, info, info_span, instrument};
 use winit::window::Window;
 use winit::{
     event::*,
@@ -150,6 +150,7 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 /// # Examples
 /// ```no_run
 /// # use std::error::Error;
+/// use recs_gfx::time::UpdateRate;
 /// use recs_gfx::{EngineError, EngineResult, GraphicsEngine, Object, SimulationBuffer};
 ///
 /// struct SimulationData;
@@ -159,7 +160,12 @@ pub type SimulationBuffer<T> = ArrayQueue<T>;
 ///     Ok(())
 /// }
 ///
-/// fn simulate(context: &mut SimulationData, queue: &SimulationBuffer<Vec<Object>>) {
+/// fn simulate(
+///     context: &mut SimulationData,
+///     time: &UpdateRate,
+///     queue: &SimulationBuffer<Vec<Object>>,
+/// ) {
+///     ///
 ///     println!("testing {queue:?}");
 ///     std::thread::sleep(std::time::Duration::from_secs(1));
 /// }
@@ -177,7 +183,8 @@ pub fn start<InitFunc, SimFunc, Context>(
 ) -> EngineResult<()>
 where
     InitFunc: FnMut(&mut Context, &mut GraphicsEngine) -> EngineResult<()> + Send + Sync,
-    SimFunc: FnMut(&mut Context, &Duration, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
+    SimFunc:
+        FnMut(&mut Context, &UpdateRate, &SimulationBuffer<Vec<Object>>) + Send + Sync + 'static,
     Context: Send + Sync,
 {
     // A FIFO-queue buffer introduces a slight latency, but decreases lock contention
@@ -196,17 +203,16 @@ where
 
         let object_queue = object_queue.borrow();
         let simulation_thread = scope.spawn(|| {
-            let mut last_update = Instant::now();
+            let mut simulation_rate = UpdateRate::new(Instant::now(), AVERAGE_FPS_SAMPLES);
             loop {
-                let delta_time = Instant::now().duration_since(last_update);
-                last_update = Instant::now();
+                simulation_rate.update_time(Instant::now());
                 simulation_rate_sender
-                    .send(delta_time)
+                    .send(simulation_rate.delta_time)
                     .map_err(EngineError::RenderingThreadClosed)
                     .expect("rendering thread should be alive");
 
                 info_span!("sim").in_scope(|| {
-                    simulate(&mut context, &delta_time, object_queue);
+                    simulate(&mut context, &simulation_rate, object_queue);
                 });
             }
         });
@@ -243,12 +249,11 @@ pub struct GraphicsEngine {
     egui_state: egui_winit::State,
     event_loop: EventLoop<()>,
     state: State,
-    last_render_time: Instant,
-    last_render_durations: VecDeque<Duration>,
+    time: Time,
     object_queue: Rc<SimulationBuffer<Vec<Object>>>,
 }
 
-const AVERAGE_FPS_SAMPLES: u32 = 32;
+const AVERAGE_FPS_SAMPLES: usize = 128;
 
 impl GraphicsEngine {
     /// Tries to create a new engine instance, but it may fail if there isn't hardware support.
@@ -270,8 +275,7 @@ impl GraphicsEngine {
             egui_state,
             event_loop,
             state,
-            last_render_time: Instant::now(),
-            last_render_durations: VecDeque::with_capacity(AVERAGE_FPS_SAMPLES as usize),
+            time: Time::new(Instant::now(), AVERAGE_FPS_SAMPLES),
             object_queue,
         })
     }
@@ -284,8 +288,7 @@ impl GraphicsEngine {
                 &mut self.egui_context,
                 &mut self.egui_state,
                 &mut self.state,
-                &mut self.last_render_time,
-                &mut self.last_render_durations,
+                &mut self.time,
                 self.object_queue.clone(),
                 &simulation_rate_receiver,
                 event,
@@ -441,8 +444,7 @@ fn handle_events(
     egui_context: &mut egui::Context,
     egui_state: &mut egui_winit::State,
     state: &mut State,
-    last_render_time: &mut Instant,
-    last_render_durations: &mut VecDeque<Duration>,
+    time: &mut Time,
     queue: Rc<SimulationBuffer<Vec<Object>>>,
     simulation_rate_receiver: &Receiver<Duration>,
     event: Event<()>,
@@ -479,27 +481,17 @@ fn handle_events(
         Event::RedrawRequested(window_id) if window_id == window.id() => {
             let input = egui_state.take_egui_input(window);
 
-            let now = Instant::now();
-            let delta_time = now - *last_render_time;
-            if last_render_durations.len() == last_render_durations.capacity() {
-                last_render_durations.pop_front();
-            }
-            last_render_durations.push_back(delta_time);
-            *last_render_time = now;
+            time.render.update_time(Instant::now());
+            time.simulation
+                .update_from_samples(simulation_rate_receiver.try_iter());
 
-            let duration_sample_count = last_render_durations.len() as u32;
-            let average_duration =
-                Duration::sum(last_render_durations.iter()) / cmp::max(1, duration_sample_count);
-            let render_fps = 1.0 / average_duration.as_secs_f32();
-            trace!("gfx {render_fps} fps (average over {duration_sample_count} ticks)");
+            let render_rate = &time.render;
+            info!("gfx {render_rate}");
 
-            let simulation_rate_messages = simulation_rate_receiver.len() as u32;
-            let average_simulation_time = Duration::sum(simulation_rate_receiver.try_iter())
-                / cmp::max(1, simulation_rate_messages);
-            let simulation_fps = 1.0 / average_simulation_time.as_secs_f32();
-            trace!("sim {simulation_fps} fps (average over {simulation_rate_messages} ticks)");
+            let simulation_rate = &time.simulation;
+            info!("sim {simulation_rate}");
 
-            state.update(delta_time, queue.borrow());
+            state.update(&time.render, queue.borrow());
 
             match state.render(window, input, egui_state, egui_context) {
                 Ok(_) => {}
