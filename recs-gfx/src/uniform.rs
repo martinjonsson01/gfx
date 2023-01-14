@@ -33,9 +33,9 @@ where
         UniformBuilder::new(device, data)
     }
 
-    pub(crate) fn update_data<TUpdater>(&mut self, queue: &wgpu::Queue, updater: TUpdater)
+    pub(crate) fn update_data<TUpdater>(&mut self, queue: &wgpu::Queue, mut updater: TUpdater)
     where
-        TUpdater: Fn(&mut TData),
+        TUpdater: FnMut(&mut TData),
     {
         updater(&mut self.data);
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.data]));

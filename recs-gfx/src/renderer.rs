@@ -528,9 +528,8 @@ where
     ) where
         CameraUpdateFn: FnMut(&mut Camera, &UpdateRate),
     {
-        // todo: move this line into update_data closure
-        update_camera(&mut self.camera, time);
         self.camera_uniform.update_data(&self.queue, |camera_data| {
+            update_camera(&mut self.camera, time);
             camera_data.update_view_projection(&self.camera, &self.projection)
         });
 
