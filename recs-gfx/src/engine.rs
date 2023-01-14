@@ -13,7 +13,6 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::thread::ScopedJoinHandle;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{error, info, info_span, instrument, span, Level};
@@ -43,9 +42,9 @@ pub enum EngineError {
     /// The simulation thread panicked.
     #[error("the simulation thread panicked with error `{0}`")]
     SimulationThreadPanic(String),
-    /// The rendering thread has closed, causing the simulation thread to not be able to send it data.
-    #[error("the rendering thread has closed")]
-    RenderingThreadClosed(#[source] SendError<Duration>),
+    /// The main thread has closed, causing the simulation thread to not be able to send it data.
+    #[error("the main thread has closed")]
+    MainThreadClosed(#[source] SendError<MainMessage>),
     /// The rendering thread failed to receive rendering data from the simulation thread.
     #[error("the rendering thread failed to receive rendering data from the simulation thread")]
     RenderDataReceipt(#[source] ring_channel::RecvError),
@@ -59,7 +58,13 @@ pub enum EngineError {
     Critical(#[source] StateError),
     /// Could not send command to windowing system.
     #[error("could not send command to windowing system")]
-    EngineSendCommand(#[source] SendError<WindowingCommand>),
+    SendWindowingCommand(#[source] SendError<WindowingCommand>),
+    /// Could not send message to simulation thread.
+    #[error("could not send message to simulation thread")]
+    SendSimulationMessage(#[source] SendError<SimulationMessage>),
+    /// An error occurred during simulation tick.
+    #[error("an error occurred during simulation tick")]
+    SimulationThread(#[source] GenericError),
 }
 
 /// Whether an engine operation failed or succeeded.
@@ -69,6 +74,7 @@ const AVERAGE_FPS_SAMPLES: usize = 128;
 
 /// The driving actor of all windowing, rendering and simulation.
 #[derive(Debug)]
+// todo: split into two structs, one for each thread (maybe three?)
 pub struct Engine<GfxInitFn, SimulationFn, ClientContext, RenderData> {
     initialize_gfx: GfxInitFn,
     simulate: SimulationFn,
@@ -96,19 +102,41 @@ const CAMERA_SENSITIVITY: f32 = 1.0;
 
 /// A buffer that contains simulation results that need to be rendered.
 pub type SimulationBuffer<T> = ArrayQueue<T>;
+// todo: remove simbuff
+
+/// A generic error type that hides the type of the error by boxing it.
+pub type GenericError = Box<dyn Error + Send + Sync>;
+
+/// A generic result type that can be returned by client code, where it's not as important
+/// what the exact type of the error is.
+pub type GenericResult<T> = Result<T, GenericError>;
+
+/// An internal message passed to the main thread at engine-level.
+#[derive(Debug)]
+pub enum MainMessage {
+    /// Sent from simulation thread to inform about its speed.
+    SimulationRate {
+        /// The time that passed between one simulation tick and the next.
+        delta_time: Duration,
+    },
+    /// Sent from simulation thread to inform about an error.
+    SimulationError(GenericError),
+}
+
+/// An internal message passed to the simulation thread at engine-level.
+#[derive(Debug)]
+pub enum SimulationMessage {
+    /// Signals that the thread should gracefully shut down and exit.
+    Exit,
+}
 
 impl<GfxInitFn, SimulationFn, ClientContext, RenderData>
     Engine<GfxInitFn, SimulationFn, ClientContext, RenderData>
 where
     for<'a> RenderData: IntoIterator<Item = Object> + Send + 'a,
     for<'a> ClientContext: Send + 'a,
-    for<'a> GfxInitFn:
-        Fn(&mut ClientContext, &mut dyn Creator) -> Result<(), Box<dyn Error + Send + Sync>> + 'a,
-    for<'a> SimulationFn: FnMut(
-            &mut ClientContext,
-            &UpdateRate,
-            &mut RingSender<RenderData>,
-        ) -> Result<(), Box<dyn Error + Send + Sync>>
+    for<'a> GfxInitFn: Fn(&mut ClientContext, &mut dyn Creator) -> GenericResult<()> + 'a,
+    for<'a> SimulationFn: FnMut(&mut ClientContext, &UpdateRate, &mut RingSender<RenderData>) -> GenericResult<()>
         + Send
         + Sync
         + 'a,
@@ -151,69 +179,92 @@ where
         (self.initialize_gfx)(&mut self.client_context, &mut self.render_state)
             .map_err(EngineError::RenderInitialization)?;
 
-        let (simulation_rate_sender, simulation_rate_receiver) = unbounded();
+        let (main_thread_sender, main_thread_receiver) = unbounded();
+        let (simulation_sender, simulation_receiver) = unbounded();
 
-        thread::scope(|scope| {
-            let _simulation_thread: ScopedJoinHandle<EngineResult<()>> =
-                scope.spawn(move || loop {
-                    let mut simulation_rate = UpdateRate::new(Instant::now(), AVERAGE_FPS_SAMPLES);
-                    loop {
-                        simulation_rate.update_time(Instant::now());
-                        simulation_rate_sender
-                            .send(simulation_rate.delta_time)
-                            .map_err(EngineError::RenderingThreadClosed)
-                            .expect("rendering thread should be alive");
+        thread::spawn(move || {
+            let span = span!(Level::INFO, "sim");
+            let _enter = span.enter();
 
-                        // todo: handle error by sending to main thread and letting it decide
-                        info_span!("sim").in_scope(|| {
-                            (self.simulate)(
-                                &mut self.client_context,
-                                &simulation_rate,
-                                &mut self.render_data_sender,
-                            )
-                            .expect("todo");
-                        });
-                    }
-                });
+            let mut simulation_rate = UpdateRate::new(Instant::now(), AVERAGE_FPS_SAMPLES);
+            while Self::simulation_loop(
+                &mut self.simulate,
+                &mut self.client_context,
+                &mut self.render_data_sender,
+                &mut simulation_rate,
+                &main_thread_sender,
+                &simulation_receiver,
+            ) == KeepAlive::Live
+            {}
+        });
 
-            self.windowing.run(
-                self.render_state,
-                move |state, window, egui_context, egui_state| {
-                    Self::main_loop(
-                        &mut self.time,
-                        &self.window_event_receiver,
-                        &mut self.window_command_sender,
-                        &simulation_rate_receiver,
-                        &mut self.camera_controller,
-                        &mut self.render_data_receiver,
-                        state,
-                    )?;
-                    Self::render_loop(state, window, egui_context, egui_state)
-                },
-            )
-        })
+        self.windowing.run(
+            self.render_state,
+            move |state, window, egui_context, egui_state| {
+                let span = span!(Level::INFO, "main");
+                let _enter = span.enter();
+
+                Self::main_loop(
+                    &mut self.time,
+                    &self.window_event_receiver,
+                    &mut self.window_command_sender,
+                    &main_thread_receiver,
+                    &simulation_sender,
+                    &mut self.camera_controller,
+                    &mut self.render_data_receiver,
+                    state,
+                )?;
+                Self::render_loop(state, window, egui_context, egui_state)
+            },
+        )
     }
 
+    // Allow this many arguments because we can't pass `&mut self` to this function due to `self`
+    // already being partially moved by the parent closure.
+    #[allow(clippy::too_many_arguments)]
     fn main_loop(
         time: &mut Time,
         window_event_receiver: &Receiver<WindowingEvent>,
         window_command_sender: &mut Sender<WindowingCommand>,
-        simulation_rate_receiver: &Receiver<Duration>,
+        main_thread_receiver: &Receiver<MainMessage>,
+        simulation_sender: &Sender<SimulationMessage>,
         camera_controller: &mut CameraController,
         render_data_receiver: &mut RingReceiver<RenderData>,
         state: &mut State<RenderData>,
     ) -> EngineResult<()> {
+        let span = span!(Level::INFO, "engine");
+        let _enter = span.enter();
+
         time.render.update_time(Instant::now());
+
+        let mut simulation_delta_samples = vec![];
+        for event in main_thread_receiver.try_iter() {
+            match event {
+                MainMessage::SimulationRate { delta_time } => {
+                    simulation_delta_samples.push(delta_time);
+                }
+                MainMessage::SimulationError(error) => {
+                    Self::signal_shutdown(
+                        window_command_sender,
+                        main_thread_receiver,
+                        simulation_sender,
+                        Some(error),
+                    )?;
+                }
+            }
+        }
         time.simulation
-            .update_from_delta_samples(simulation_rate_receiver.try_iter());
+            .update_from_delta_samples(simulation_delta_samples);
 
         for event in window_event_receiver.try_iter() {
             match event {
                 WindowingEvent::Input(InputEvent::Close) => {
-                    // todo: graceful shutdown of all threads
-                    window_command_sender
-                        .send(WindowingCommand::Quit(0))
-                        .map_err(EngineError::EngineSendCommand)?;
+                    Self::signal_shutdown(
+                        window_command_sender,
+                        main_thread_receiver,
+                        simulation_sender,
+                        None,
+                    )?;
                 }
                 WindowingEvent::Input(input) => {
                     camera_controller.input(&input);
@@ -245,8 +296,9 @@ where
         egui_context: &mut egui::Context,
         egui_state: &mut egui_winit::State,
     ) -> EngineResult<()> {
-        let span = span!(Level::INFO, "gfx");
+        let span = span!(Level::INFO, "render");
         let _enter = span.enter();
+
         match state.render(window, egui_state, egui_context) {
             Ok(_) => Ok(()),
             // Reconfigure the surface if lost.
@@ -276,6 +328,70 @@ where
             Err(error) => Err(EngineError::Rendering(Box::new(error))),
         }
     }
+
+    fn simulation_loop(
+        simulate: &mut SimulationFn,
+        client_context: &mut ClientContext,
+        render_data_sender: &mut RingSender<RenderData>,
+        rate: &mut UpdateRate,
+        main_thread_sender: &Sender<MainMessage>,
+        simulation_receiver: &Receiver<SimulationMessage>,
+    ) -> KeepAlive {
+        if let Ok(SimulationMessage::Exit) = simulation_receiver.try_recv() {
+            return KeepAlive::Die;
+        }
+
+        rate.update_time(Instant::now());
+        main_thread_sender
+            .send(MainMessage::SimulationRate {
+                delta_time: rate.delta_time,
+            })
+            .map_err(EngineError::MainThreadClosed)
+            .expect("main thread should be alive");
+
+        if let Err(error) =
+            info_span!("simulate").in_scope(|| (simulate)(client_context, rate, render_data_sender))
+        {
+            main_thread_sender
+                .send(MainMessage::SimulationError(error))
+                .map_err(EngineError::MainThreadClosed)
+                .expect("main thread should be alive");
+        }
+
+        KeepAlive::Live
+    }
+
+    #[instrument(skip_all, fields(simulation_error))]
+    fn signal_shutdown(
+        window_command_sender: &mut Sender<WindowingCommand>,
+        main_thread_receiver: &Receiver<MainMessage>,
+        simulation_sender: &Sender<SimulationMessage>,
+        simulation_error: Option<GenericError>,
+    ) -> EngineResult<()> {
+        simulation_sender
+            .send(SimulationMessage::Exit)
+            .map_err(EngineError::SendSimulationMessage)?;
+
+        // Block until simulation thread has exited, before continuing with own shutdown
+        for _ in main_thread_receiver.iter() {}
+
+        if let Some(error) = simulation_error {
+            // Propagate error instead of sending quit window command, since that will
+            // eventually quit as well, but will log the error.
+            Err(EngineError::SimulationThread(error))
+        } else {
+            window_command_sender
+                .send(WindowingCommand::Quit(0))
+                .map_err(EngineError::SendWindowingCommand)
+        }
+    }
+}
+
+/// Whether to keep a thread "alive" (running) or not.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+enum KeepAlive {
+    Live,
+    Die,
 }
 
 /// A way of creating objects in the renderer.

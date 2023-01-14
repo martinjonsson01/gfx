@@ -2,13 +2,12 @@ use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use rand::Rng;
-use recs_gfx::engine::{Creator, Engine, RingSender};
+use recs_gfx::engine::{Creator, Engine, GenericResult, RingSender};
 use recs_gfx::time::UpdateRate;
 use recs_gfx::{Object, Transform};
-use std::error::Error;
 use std::path::Path;
 use std::time::Duration;
-use tracing::{info, instrument};
+use tracing::instrument;
 
 struct SimulationContext {
     objects: Vec<Object>,
@@ -58,10 +57,7 @@ fn main() -> Result<(), Report> {
 
     color_eyre::install()?;
 
-    fn init_gfx(
-        context: &mut SimulationContext,
-        gfx: &mut dyn Creator,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn init_gfx(context: &mut SimulationContext, gfx: &mut dyn Creator) -> GenericResult<()> {
         let model = gfx.load_model(Path::new("cube.obj"))?;
 
         let transforms = create_transforms();
@@ -70,13 +66,11 @@ fn main() -> Result<(), Report> {
         Ok(())
     }
 
-    info!("start");
-
     fn simulate(
         context: &mut SimulationContext,
         time: &UpdateRate,
         sender: &mut RingSender<Vec<Object>>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> GenericResult<()> {
         context.animate_rotation(sender, &time.delta_time)?;
         Ok(())
     }
@@ -129,7 +123,7 @@ fn install_tracing() -> Result<(), Report> {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
 
-    let fmt_layer = fmt::layer().with_thread_ids(true).with_target(true);
+    let fmt_layer = fmt::layer().with_thread_ids(true);
     let filter_layer = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("warn"))?;
 
     tracing_subscriber::registry()
