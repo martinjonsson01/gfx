@@ -17,7 +17,7 @@ use thiserror::Error;
 use tracing::{error, info, info_span, instrument, span, Level};
 use winit::window::Window;
 
-/// An error that has occurred within the graphics engine.
+/// An error that has occurred within the engine.
 #[derive(Error, Debug)]
 pub enum EngineError {
     /// Could not instantiate State.
