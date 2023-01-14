@@ -38,9 +38,6 @@ pub enum EngineError {
     /// Could not create a single new object.
     #[error("a single new object could not be created")]
     SingleObjectCreation(),
-    /// The simulation thread panicked.
-    #[error("the simulation thread panicked with error `{0}`")]
-    SimulationThreadPanic(String),
     /// The main thread has closed, causing the simulation thread to not be able to send it data.
     #[error("the main thread has closed")]
     MainThreadClosed(#[source] SendError<MainMessage>),
