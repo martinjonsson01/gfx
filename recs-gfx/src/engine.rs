@@ -5,7 +5,7 @@ use crate::renderer::{ModelHandle, Renderer, RendererError};
 use crate::time::{Time, UpdateRate};
 use crate::window::{InputEvent, Windowing, WindowingCommand, WindowingError, WindowingEvent};
 use crate::{Object, Transform};
-use crossbeam_channel::{unbounded, Receiver, SendError, Sender};
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, SendError, Sender};
 pub use ring_channel::RingSender;
 use ring_channel::{ring_channel, RingReceiver};
 use std::error::Error;
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use tracing::{error, info, info_span, instrument, span, Level};
+use tracing::{error, info, info_span, instrument, span, warn, Level};
 use winit::window::Window;
 
 /// An error that has occurred within the engine.
@@ -361,8 +361,17 @@ where
             .send(SimulationMessage::Exit)
             .map_err(EngineError::SendSimulationMessage)?;
 
-        // Block until simulation thread has exited, before continuing with own shutdown
-        for _ in main_thread_receiver.iter() {}
+        // Block until simulation thread has exited, before continuing with own shutdown,
+        // because otherwise the exit of the main thread will kill the simulation thread.
+        let timeout = Duration::from_secs(1);
+        let result = loop {
+            if let Err(e) = main_thread_receiver.recv_timeout(timeout) {
+                break e;
+            }
+        };
+        if let RecvTimeoutError::Timeout = result {
+            warn!("simulation thread failed to exit within {timeout:?}, forcing exit...")
+        }
 
         if let Some(error) = simulation_error {
             // Propagate error instead of sending quit window command, since that will
