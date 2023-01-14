@@ -123,7 +123,7 @@ fn install_tracing() -> Result<(), Report> {
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::{fmt, EnvFilter};
 
-    let fmt_layer = fmt::layer().with_thread_ids(true);
+    let fmt_layer = fmt::layer().with_thread_ids(true).with_target(false);
     let filter_layer = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("warn"))?;
 
     tracing_subscriber::registry()
