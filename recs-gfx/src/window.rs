@@ -108,7 +108,7 @@ where
 
     pub(crate) fn run<UpdateFn>(
         self,
-        mut render_state: Renderer<RenderData>,
+        mut renderer: Renderer<RenderData>,
         mut update_loop: UpdateFn,
     ) -> !
     where
@@ -140,7 +140,7 @@ where
                 default => {
                     let result = Self::handle_event(
                         event,
-                        &mut render_state,
+                        &mut renderer,
                         &mut update_loop,
                         &mut window,
                         &mut egui_context,
@@ -171,7 +171,7 @@ where
     #[instrument(level = "trace", skip_all, fields(event, window))]
     fn handle_event<UpdateFn>(
         event: Event<()>,
-        render_state: &mut Renderer<RenderData>,
+        renderer: &mut Renderer<RenderData>,
         update_loop: &mut UpdateFn,
         window: &mut Window,
         egui_context: &mut egui::Context,
@@ -215,7 +215,7 @@ where
                 }
             }
             Event::RedrawRequested(window_id) if window_id == window.id() => {
-                update_loop(render_state, window, egui_context, egui_state)
+                update_loop(renderer, window, egui_context, egui_state)
                     .map_err(|e| WindowingError::Update(Box::new(e)))?;
             }
             _ => {}
