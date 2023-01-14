@@ -57,11 +57,11 @@ fn main() -> Result<(), Report> {
 
     color_eyre::install()?;
 
-    fn init_gfx(context: &mut SimulationContext, gfx: &mut dyn Creator) -> GenericResult<()> {
-        let model = gfx.load_model(Path::new("cube.obj"))?;
+    fn init_gfx(context: &mut SimulationContext, creator: &mut dyn Creator) -> GenericResult<()> {
+        let model = creator.load_model(Path::new("cube.obj"))?;
 
         let transforms = create_transforms();
-        context.objects = gfx.create_objects(model, transforms)?;
+        context.objects = creator.create_objects(model, transforms)?;
 
         Ok(())
     }

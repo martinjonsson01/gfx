@@ -412,32 +412,29 @@ pub trait Creator {
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::error::Error;
-    /// use cgmath::{One, Quaternion, Vector3, Zero};
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::{Object, RenderContext, Transform};
-    /// use std::rc::Rc;
+    /// # use cgmath::{One, Quaternion, Vector3, Zero};
+    /// use recs_gfx::engine::{Creator, GenericResult};
+    /// use recs_gfx::{Object, Transform};
     ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let mut graphics_engine = RenderContext::new(queue.clone())?;
+    /// # struct SimulationContext;
     ///
-    /// let model_path = std::path::Path::new("path/to/model.obj");
-    /// let model_handle = graphics_engine.load_model(model_path)?;
+    /// fn init_gfx(context: &mut SimulationContext, creator: &mut dyn Creator) -> GenericResult<()> {
+    ///     let model_path = std::path::Path::new("path/to/model.obj");
+    ///     let model_handle = creator.load_model(model_path)?;
     ///
-    /// const NUMBER_OF_TRANSFORMS: usize = 10;
-    /// let transforms = (0..NUMBER_OF_TRANSFORMS)
-    ///     .map(|_| Transform {
-    ///         position: Vector3::zero(),
-    ///         rotation: Quaternion::one(),
-    ///         scale: Vector3::new(1.0, 1.0, 1.0),
-    ///     })
-    ///     .collect();
-    /// let objects: Vec<Object> = graphics_engine.create_objects(model_handle, transforms)?;
+    ///     const NUMBER_OF_TRANSFORMS: usize = 10;
+    ///     let transforms = (0..NUMBER_OF_TRANSFORMS)
+    ///         .map(|_| Transform {
+    ///             position: Vector3::zero(),
+    ///             rotation: Quaternion::one(),
+    ///             scale: Vector3::new(1.0, 1.0, 1.0),
+    ///         })
+    ///         .collect();
+    ///     let objects: Vec<Object> = creator.create_objects(model_handle, transforms)?;
     ///
-    /// assert_eq!(objects.len(), NUMBER_OF_TRANSFORMS);
-    /// #   Ok(())
-    /// # }
+    ///     assert_eq!(objects.len(), NUMBER_OF_TRANSFORMS);
+    ///     Ok(())
+    /// }
     /// ```
     fn create_objects(
         &mut self,
@@ -448,82 +445,44 @@ pub trait Creator {
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::error::Error;
-    /// use cgmath::{Quaternion, Vector3, Zero};
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::{RenderContext, Transform};
+    /// # use cgmath::{Quaternion, Vector3, Zero};
+    /// use recs_gfx::engine::{Creator, GenericResult};
+    /// use recs_gfx::Transform;
     ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// use std::rc::Rc;
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let mut graphics_engine = RenderContext::new(queue.clone())?;
+    /// # struct SimulationContext;
     ///
-    /// let model_path = std::path::Path::new("path/to/model.obj");
-    /// let model_handle = graphics_engine.load_model(model_path)?;
+    /// fn init_gfx(context: &mut SimulationContext, creator: &mut dyn Creator) -> GenericResult<()> {
+    ///     let model_path = std::path::Path::new("path/to/model.obj");
+    ///     let model_handle = creator.load_model(model_path)?;
     ///
-    /// let transform = Transform {
-    ///     position: Vector3::new(0.0, 10.0, 0.0),
-    ///     rotation: Quaternion::zero(),
-    ///     scale: Vector3::new(1.0, 1.0, 1.0),
-    /// };
-    /// let object = graphics_engine.create_object(model_handle, transform)?;
-    /// #   Ok(())
-    /// # }
+    ///     let transform = Transform {
+    ///         position: Vector3::new(0.0, 10.0, 0.0),
+    ///         rotation: Quaternion::zero(),
+    ///         scale: Vector3::new(1.0, 1.0, 1.0),
+    ///     };
+    ///     let object = creator.create_object(model_handle, transform)?;
+    ///     Ok(())
+    /// }
     /// ```
     fn create_object(&mut self, model: ModelHandle, transform: Transform) -> EngineResult<Object>;
     /// Loads a model into the engine.
     ///
     /// # Examples
     /// ```no_run
-    /// # use std::error::Error;
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::RenderContext;
+    /// use recs_gfx::engine::{Creator, GenericResult};
     ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// use std::rc::Rc;
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let mut graphics_engine = RenderContext::new(queue.clone())?;
+    /// # struct SimulationContext;
     ///
-    /// let model_path = std::path::Path::new("path/to/model.obj");
-    /// let model_handle = graphics_engine.load_model(model_path)?;
-    /// #   Ok(())
-    /// # }
+    /// fn init_gfx(context: &mut SimulationContext, creator: &mut dyn Creator) -> GenericResult<()> {
+    ///     let model_path = std::path::Path::new("path/to/model.obj");
+    ///     let model_handle = creator.load_model(model_path)?;
+    ///     Ok(())
+    /// }
     /// ```
     fn load_model(&mut self, path: &Path) -> EngineResult<ModelHandle>;
 }
 
 impl<RenderData> Creator for Renderer<RenderData> {
-    /// Creates multiple objects with the same model in the world.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::error::Error;
-    /// use cgmath::{One, Quaternion, Vector3, Zero};
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::{Object, RenderContext, Transform};
-    /// use std::rc::Rc;
-    ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let mut graphics_engine = RenderContext::new(queue.clone())?;
-    ///
-    /// let model_path = std::path::Path::new("path/to/model.obj");
-    /// let model_handle = graphics_engine.load_model(model_path)?;
-    ///
-    /// const NUMBER_OF_TRANSFORMS: usize = 10;
-    /// let transforms = (0..NUMBER_OF_TRANSFORMS)
-    ///     .map(|_| Transform {
-    ///         position: Vector3::zero(),
-    ///         rotation: Quaternion::one(),
-    ///         scale: Vector3::new(1.0, 1.0, 1.0),
-    ///     })
-    ///     .collect();
-    /// let objects: Vec<Object> = graphics_engine.create_objects(model_handle, transforms)?;
-    ///
-    /// assert_eq!(objects.len(), NUMBER_OF_TRANSFORMS);
-    /// #   Ok(())
-    /// # }
-    /// ```
     #[instrument(skip(self))]
     fn create_objects(
         &mut self,
@@ -543,32 +502,6 @@ impl<RenderData> Creator for Renderer<RenderData> {
             .collect())
     }
 
-    /// Creates an object in the world.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::error::Error;
-    /// use cgmath::{Quaternion, Vector3, Zero};
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::{RenderContext, Transform};
-    ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// use std::rc::Rc;
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let mut graphics_engine = RenderContext::new(queue.clone())?;
-    ///
-    /// let model_path = std::path::Path::new("path/to/model.obj");
-    /// let model_handle = graphics_engine.load_model(model_path)?;
-    ///
-    /// let transform = Transform {
-    ///     position: Vector3::new(0.0, 10.0, 0.0),
-    ///     rotation: Quaternion::zero(),
-    ///     scale: Vector3::new(1.0, 1.0, 1.0),
-    /// };
-    /// let object = graphics_engine.create_object(model_handle, transform)?;
-    /// #   Ok(())
-    /// # }
-    /// ```
     #[instrument(skip(self))]
     fn create_object(&mut self, model: ModelHandle, transform: Transform) -> EngineResult<Object> {
         self.create_objects(model, vec![transform])?
@@ -576,24 +509,6 @@ impl<RenderData> Creator for Renderer<RenderData> {
             .ok_or_else(EngineError::SingleObjectCreation)
     }
 
-    /// Loads a model into the engine.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::error::Error;
-    /// use crossbeam_queue::ArrayQueue;
-    /// use recs_gfx::RenderContext;
-    ///
-    /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// use std::rc::Rc;
-    /// let queue = Rc::new(ArrayQueue::new(1));
-    /// let mut graphics_engine = RenderContext::new(queue.clone())?;
-    ///
-    /// let model_path = std::path::Path::new("path/to/model.obj");
-    /// let model_handle = graphics_engine.load_model(model_path)?;
-    /// #   Ok(())
-    /// # }
-    /// ```
     #[instrument(skip(self))]
     fn load_model(&mut self, path: &Path) -> EngineResult<ModelHandle> {
         self.load_model(path)
