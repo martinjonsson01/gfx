@@ -1,5 +1,5 @@
+use crate::renderer::ModelHandle;
 use crate::shader_locations::*;
-use crate::state::ModelHandle;
 use cgmath::{Matrix3, Matrix4, Quaternion, Vector3};
 use std::mem::size_of;
 use std::ops::Range;

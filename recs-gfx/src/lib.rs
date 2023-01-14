@@ -30,8 +30,8 @@ mod camera;
 pub mod engine;
 mod instance;
 mod model;
+mod renderer;
 mod resources;
-mod state;
 mod texture;
 pub mod time;
 mod uniform;
@@ -39,7 +39,7 @@ mod window;
 
 use crate::camera::{Camera, Projection};
 pub use crate::instance::Transform;
-use crate::state::{InstancesHandle, ModelHandle};
+use crate::renderer::{InstancesHandle, ModelHandle};
 use cgmath::{Matrix4, SquareMatrix};
 use crossbeam_queue::ArrayQueue;
 

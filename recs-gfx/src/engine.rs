@@ -1,7 +1,7 @@
 //! The core managing module of the engine, responsible for high-level startup and error-handling.
 
 use crate::camera::CameraController;
-use crate::state::{ModelHandle, State, StateError};
+use crate::renderer::{ModelHandle, Renderer, RendererError};
 use crate::time::{Time, UpdateRate};
 use crate::window::{InputEvent, Windowing, WindowingCommand, WindowingError, WindowingEvent};
 use crate::{Object, Transform};
@@ -22,19 +22,19 @@ use winit::window::Window;
 pub enum EngineError {
     /// Could not instantiate State.
     #[error("could not instantiate State")]
-    StateConstruction(#[source] Box<StateError>),
+    StateConstruction(#[source] Box<RendererError>),
     /// Could not create a window.
     #[error("could not create a window")]
     WindowCreation(#[source] WindowingError),
     /// Failed to render frame.
     #[error("failed to render frame")]
-    Rendering(#[source] Box<StateError>),
+    Rendering(#[source] Box<RendererError>),
     /// Could not load model.
     #[error("could not load model `{1}`")]
-    ModelLoad(#[source] Box<StateError>, PathBuf),
+    ModelLoad(#[source] Box<RendererError>, PathBuf),
     /// Could not create a new object.
     #[error("a new object could not be created")]
-    ObjectCreation(#[source] Box<StateError>),
+    ObjectCreation(#[source] Box<RendererError>),
     /// Could not create a single new object.
     #[error("a single new object could not be created")]
     SingleObjectCreation(),
@@ -48,7 +48,7 @@ pub enum EngineError {
     #[error(
         "a critical error has occurred and the application should shut down as soon as possible"
     )]
-    Critical(#[source] StateError),
+    Critical(#[source] RendererError),
     /// Could not send command to windowing system.
     #[error("could not send command to windowing system")]
     SendWindowingCommand(#[source] SendError<WindowingCommand>),
@@ -85,7 +85,7 @@ pub struct Engine<GfxInitFn, SimulationFn, ClientContext, RenderData> {
     /// Used to send commands to the windowing system.
     window_command_sender: Sender<WindowingCommand>,
     /// The current state of the renderer.
-    render_state: State<RenderData>,
+    render_state: Renderer<RenderData>,
     /// The current time of the engine.
     time: Time,
 }
@@ -145,7 +145,7 @@ where
 
         let (windowing, window_event_receiver, window_command_sender) =
             Windowing::new().map_err(EngineError::WindowCreation)?;
-        let render_state = State::new(&windowing.window)
+        let render_state = Renderer::new(&windowing.window)
             .map_err(|e| EngineError::StateConstruction(Box::new(e)))?;
 
         Ok(Self {
@@ -219,7 +219,7 @@ where
         simulation_sender: &Sender<SimulationMessage>,
         camera_controller: &mut CameraController,
         render_data_receiver: &mut RingReceiver<RenderData>,
-        state: &mut State<RenderData>,
+        state: &mut Renderer<RenderData>,
     ) -> EngineResult<()> {
         let span = span!(Level::INFO, "engine");
         let _enter = span.enter();
@@ -280,7 +280,7 @@ where
     }
 
     fn render_loop(
-        state: &mut State<RenderData>,
+        state: &mut Renderer<RenderData>,
         window: &Window,
         egui_context: &mut egui::Context,
         egui_state: &mut egui_winit::State,
@@ -291,7 +291,7 @@ where
         match state.render(window, egui_state, egui_context) {
             Ok(_) => Ok(()),
             // Reconfigure the surface if lost.
-            Err(StateError::MissingOutputTexture(wgpu::SurfaceError::Lost)) => {
+            Err(RendererError::MissingOutputTexture(wgpu::SurfaceError::Lost)) => {
                 // Resizing to same size effectively recreates the surface.
                 state.resize(window.inner_size());
                 Ok(())
@@ -300,16 +300,16 @@ where
             Err(error)
                 if matches!(
                     error,
-                    StateError::MissingOutputTexture(wgpu::SurfaceError::OutOfMemory)
+                    RendererError::MissingOutputTexture(wgpu::SurfaceError::OutOfMemory)
                 ) =>
             {
                 Err(EngineError::Critical(error))
             }
             // `SurfaceError::Outdated` occurs when the app is minimized on Windows.
             // Silently return here to prevent spamming the console with "Outdated".
-            Err(StateError::MissingOutputTexture(wgpu::SurfaceError::Outdated)) => Ok(()),
+            Err(RendererError::MissingOutputTexture(wgpu::SurfaceError::Outdated)) => Ok(()),
             // All other surface errors (Timeout) should be resolved by the next frame.
-            Err(StateError::MissingOutputTexture(error)) => {
+            Err(RendererError::MissingOutputTexture(error)) => {
                 error!("{error:?}");
                 Ok(())
             }
@@ -469,7 +469,7 @@ pub trait Creator {
     fn load_model(&mut self, path: &Path) -> EngineResult<ModelHandle>;
 }
 
-impl<RenderData> Creator for State<RenderData> {
+impl<RenderData> Creator for Renderer<RenderData> {
     /// Creates multiple objects with the same model in the world.
     ///
     /// # Examples

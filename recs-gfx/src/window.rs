@@ -9,7 +9,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
 use crate::engine::{EngineError, EngineResult};
-use crate::state::State;
+use crate::renderer::Renderer;
 pub use winit::event::{ElementState, MouseButton, MouseScrollDelta, VirtualKeyCode};
 
 /// An error that has occurred relating to window management.
@@ -108,12 +108,12 @@ where
 
     pub(crate) fn run<UpdateFn>(
         self,
-        mut render_state: State<RenderData>,
+        mut render_state: Renderer<RenderData>,
         mut update_loop: UpdateFn,
     ) -> !
     where
         for<'a> UpdateFn: FnMut(
-                &mut State<RenderData>,
+                &mut Renderer<RenderData>,
                 &Window,
                 &mut egui::Context,
                 &mut egui_winit::State,
@@ -171,7 +171,7 @@ where
     #[instrument(level = "trace", skip_all, fields(event, window))]
     fn handle_event<UpdateFn>(
         event: Event<()>,
-        render_state: &mut State<RenderData>,
+        render_state: &mut Renderer<RenderData>,
         update_loop: &mut UpdateFn,
         window: &mut Window,
         egui_context: &mut egui::Context,
@@ -180,7 +180,7 @@ where
     ) -> WindowingResult<()>
     where
         UpdateFn: FnMut(
-            &mut State<RenderData>,
+            &mut Renderer<RenderData>,
             &Window,
             &mut egui::Context,
             &mut egui_winit::State,

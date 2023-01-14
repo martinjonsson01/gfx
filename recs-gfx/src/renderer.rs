@@ -1,11 +1,11 @@
 use crate::camera::{Camera, Projection};
 use crate::instance::{ModelInstances, Transform, TransformRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
+use crate::renderer::RendererError::ModelLoad;
 use crate::shader_locations::{
     FRAGMENT_DIFFUSE_SAMPLER, FRAGMENT_DIFFUSE_TEXTURE, FRAGMENT_MATERIAL_UNIFORM,
     FRAGMENT_NORMAL_SAMPLER, FRAGMENT_NORMAL_TEXTURE,
 };
-use crate::state::StateError::ModelLoad;
 use crate::texture::Texture;
 use crate::time::UpdateRate;
 use crate::uniform::{Uniform, UniformBinding};
@@ -20,9 +20,8 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use winit::window::Window;
 
-// todo: rename State to Renderer
 #[derive(Error, Debug)]
-pub enum StateError {
+pub enum RendererError {
     #[error("the window width can't be 0")]
     WindowWidthZero,
     #[error("the window height can't be 0")]
@@ -41,7 +40,7 @@ pub enum StateError {
     InvalidModelHandle(ModelHandle),
 }
 
-pub type StateResult<T, E = StateError> = Result<T, E>;
+pub type RendererResult<T, E = RendererError> = Result<T, E>;
 
 /// A point-light that emits light in every direction and has no area.
 #[repr(C)]
@@ -55,7 +54,7 @@ struct PointLightUniform {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub(crate) struct State<RenderData> {
+pub(crate) struct Renderer<Data> {
     /// The part of the [`Window`] that we draw to.
     surface: wgpu::Surface,
     /// Current GPU.
@@ -92,7 +91,7 @@ pub(crate) struct State<RenderData> {
     /// A render pass for the GUI from egui.
     #[derivative(Debug = "ignore")]
     egui_renderer: egui_wgpu::Renderer,
-    _data: PhantomData<RenderData>,
+    _data: PhantomData<Data>,
 }
 
 /// An identifier for a specific model that has been loaded into the engine.
@@ -101,8 +100,8 @@ pub type ModelHandle = usize;
 /// An identifier for a group of model instances.
 pub type InstancesHandle = usize;
 
-impl<RenderData> State<RenderData> {
-    pub(crate) fn load_model(&mut self, path: &Path) -> StateResult<ModelHandle> {
+impl<Data> Renderer<Data> {
+    pub(crate) fn load_model(&mut self, path: &Path) -> RendererResult<ModelHandle> {
         let obj_model = resources::load_model(
             path,
             &self.device,
@@ -120,9 +119,9 @@ impl<RenderData> State<RenderData> {
         &mut self,
         model: ModelHandle,
         transforms: Vec<Transform>,
-    ) -> StateResult<InstancesHandle> {
+    ) -> RendererResult<InstancesHandle> {
         if model >= self.models.len() {
-            return Err(StateError::InvalidModelHandle(model));
+            return Err(RendererError::InvalidModelHandle(model));
         }
 
         let instances = ModelInstances::new(&self.device, model, transforms);
@@ -132,14 +131,14 @@ impl<RenderData> State<RenderData> {
         Ok(index)
     }
 
-    pub(crate) fn new(window: &Window) -> StateResult<Self> {
+    pub(crate) fn new(window: &Window) -> RendererResult<Self> {
         let size = window.inner_size();
 
         if size.width == 0 {
-            return Err(StateError::WindowWidthZero);
+            return Err(RendererError::WindowWidthZero);
         }
         if size.height == 0 {
-            return Err(StateError::WindowHeightZero);
+            return Err(RendererError::WindowHeightZero);
         }
 
         // The instance is a handle to our GPU
@@ -157,7 +156,7 @@ impl<RenderData> State<RenderData> {
         // is only a one-off initialization step.
         let adapter =
             pollster::block_on(async { instance.request_adapter(&adapter_options).await })
-                .ok_or_else(|| StateError::AdapterNotFound)?;
+                .ok_or_else(|| RendererError::AdapterNotFound)?;
 
         let (device, queue) = pollster::block_on(async {
             adapter
@@ -177,12 +176,12 @@ impl<RenderData> State<RenderData> {
                 )
                 .await
         })
-        .map_err(StateError::DeviceNotFound)?;
+        .map_err(RendererError::DeviceNotFound)?;
 
         let surface_format = *surface
             .get_supported_formats(&adapter)
             .first()
-            .ok_or_else(|| StateError::SurfaceIncompatibleWithAdapter {
+            .ok_or_else(|| RendererError::SurfaceIncompatibleWithAdapter {
                 surface: format!("{surface:?}"),
                 adapter: format!("{adapter:?}"),
             })?;
@@ -397,11 +396,11 @@ impl<RenderData> State<RenderData> {
         window: &Window,
         egui_state: &mut egui_winit::State,
         context: &mut egui::Context,
-    ) -> StateResult<()> {
+    ) -> RendererResult<()> {
         let output = self
             .surface
             .get_current_texture()
-            .map_err(StateError::MissingOutputTexture)?;
+            .map_err(RendererError::MissingOutputTexture)?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -517,14 +516,14 @@ impl<RenderData> State<RenderData> {
     }
 }
 
-impl<RenderData> State<RenderData>
+impl<Data> Renderer<Data>
 where
-    RenderData: IntoIterator<Item = Object>,
+    Data: IntoIterator<Item = Object>,
 {
     pub(crate) fn update<CameraUpdateFn>(
         &mut self,
         time: &UpdateRate,
-        objects: RenderData,
+        objects: Data,
         mut update_camera: CameraUpdateFn,
     ) where
         CameraUpdateFn: FnMut(&mut Camera, &UpdateRate),
