@@ -2,6 +2,7 @@ use crossbeam_channel::{select, unbounded, Receiver, RecvError, SendError, Sende
 use derivative::Derivative;
 use std::marker::PhantomData;
 use thiserror::Error;
+use tracing::{instrument, span, Level};
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceEvent, Event, KeyboardInput, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -20,9 +21,9 @@ pub enum WindowingError {
     /// Could not send window event to receivers.
     #[error("could not send window event to receivers")]
     WindowSendEvent(#[source] SendError<WindowingEvent>),
-    /// Failed to render frame.
-    #[error("failed to render frame")]
-    Rendering(#[source] Box<EngineError>),
+    /// Failed to update window.
+    #[error("failed to update window")]
+    Update(#[source] Box<EngineError>),
 }
 
 /// Whether a windowing operation failed or succeeded.
@@ -129,6 +130,9 @@ where
             _phantom0,
         } = self;
         event_loop.run(move |event, _, control_flow| {
+            let span = span!(Level::INFO, "windowing");
+            let _enter = span.enter();
+
             select! (
                 recv(command_receiver) -> command => {
                     Self::handle_command(command, control_flow)
@@ -149,6 +153,7 @@ where
         });
     }
 
+    #[instrument(level = "trace")]
     fn handle_command(
         command: Result<WindowingCommand, RecvError>,
         control_flow: &mut ControlFlow,
@@ -163,6 +168,7 @@ where
         }
     }
 
+    #[instrument(level = "trace", skip_all, fields(event, window))]
     fn handle_event<UpdateFn>(
         event: Event<()>,
         render_state: &mut State<RenderData>,
@@ -210,7 +216,7 @@ where
             }
             Event::RedrawRequested(window_id) if window_id == window.id() => {
                 update_loop(render_state, window, egui_context, egui_state)
-                    .map_err(|e| WindowingError::Rendering(Box::new(e)))?;
+                    .map_err(|e| WindowingError::Update(Box::new(e)))?;
             }
             _ => {}
         };
