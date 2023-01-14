@@ -6,7 +6,6 @@ use crate::time::{Time, UpdateRate};
 use crate::window::{InputEvent, Windowing, WindowingCommand, WindowingError, WindowingEvent};
 use crate::{Object, Transform};
 use crossbeam_channel::{unbounded, Receiver, SendError, Sender};
-use crossbeam_queue::ArrayQueue;
 pub use ring_channel::RingSender;
 use ring_channel::{ring_channel, RingReceiver};
 use std::error::Error;
@@ -45,9 +44,6 @@ pub enum EngineError {
     /// The main thread has closed, causing the simulation thread to not be able to send it data.
     #[error("the main thread has closed")]
     MainThreadClosed(#[source] SendError<MainMessage>),
-    /// The rendering thread failed to receive rendering data from the simulation thread.
-    #[error("the rendering thread failed to receive rendering data from the simulation thread")]
-    RenderDataReceipt(#[source] ring_channel::RecvError),
     /// An error occurred during graphics initialization by the client.
     #[error("an error occurred during graphics initialization by the client")]
     RenderInitialization(#[source] Box<dyn Error + Send + Sync>),
@@ -99,10 +95,6 @@ pub struct Engine<GfxInitFn, SimulationFn, ClientContext, RenderData> {
 
 const CAMERA_SPEED: f32 = 7.0;
 const CAMERA_SENSITIVITY: f32 = 1.0;
-
-/// A buffer that contains simulation results that need to be rendered.
-pub type SimulationBuffer<T> = ArrayQueue<T>;
-// todo: remove simbuff
 
 /// A generic error type that hides the type of the error by boxing it.
 pub type GenericError = Box<dyn Error + Send + Sync>;
