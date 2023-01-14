@@ -2,8 +2,10 @@ use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use rand::Rng;
+use recs_gfx::engine::{Creator, Engine, RingSender};
 use recs_gfx::time::UpdateRate;
-use recs_gfx::{EngineResult, GraphicsEngine, Object, SimulationBuffer, Transform};
+use recs_gfx::{Object, Transform};
+use std::error::Error;
 use std::path::Path;
 use std::time::Duration;
 use tracing::{info, instrument};
@@ -17,7 +19,11 @@ impl SimulationContext {
         SimulationContext { objects: vec![] }
     }
 
-    fn animate_rotation(&mut self, queue: &SimulationBuffer<Vec<Object>>, delta_time: &Duration) {
+    fn animate_rotation(
+        &mut self,
+        sender: &mut RingSender<Vec<Object>>,
+        delta_time: &Duration,
+    ) -> Result<(), Report> {
         let rotation_delta = 10.0 * delta_time.as_secs_f32();
 
         let new_objects: Vec<Object> = self
@@ -40,7 +46,9 @@ impl SimulationContext {
             })
             .collect();
 
-        queue.force_push(new_objects);
+        sender.send(new_objects)?;
+
+        Ok(())
     }
 }
 
@@ -50,7 +58,10 @@ fn main() -> Result<(), Report> {
 
     color_eyre::install()?;
 
-    fn init_gfx(context: &mut SimulationContext, gfx: &mut GraphicsEngine) -> EngineResult<()> {
+    fn init_gfx(
+        context: &mut SimulationContext,
+        gfx: &mut dyn Creator,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let model = gfx.load_model(Path::new("cube.obj"))?;
 
         let transforms = create_transforms();
@@ -64,12 +75,14 @@ fn main() -> Result<(), Report> {
     fn simulate(
         context: &mut SimulationContext,
         time: &UpdateRate,
-        queue: &SimulationBuffer<Vec<Object>>,
-    ) {
-        context.animate_rotation(queue, &time.delta_time);
+        sender: &mut RingSender<Vec<Object>>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        context.animate_rotation(sender, &time.delta_time)?;
+        Ok(())
     }
 
-    recs_gfx::start(SimulationContext::new(), init_gfx, simulate)?;
+    let engine = Engine::new(init_gfx, simulate, SimulationContext::new())?;
+    engine.start()?;
 
     Ok(())
 }

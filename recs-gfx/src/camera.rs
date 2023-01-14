@@ -1,9 +1,9 @@
+use crate::window::{ElementState, InputEvent, MouseButton, MouseScrollDelta, VirtualKeyCode};
 use crate::EventPropagation;
 use cgmath::{perspective, InnerSpace, Matrix4, Point3, Rad, Vector3};
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 use winit::dpi::PhysicalPosition;
-use winit::event::{ElementState, MouseScrollDelta, VirtualKeyCode};
 
 /// The coordinate system in wgpu is based on DirectX's and Metal's coordinate systems.
 /// This means that in normalized device coordinates, the x- and y-axis span [-1, 1], with
@@ -113,6 +113,7 @@ pub struct CameraController {
     scroll: f32,
     speed: f32,
     sensitivity: f32,
+    mouse_pressed: bool,
 }
 
 impl CameraController {
@@ -129,14 +130,41 @@ impl CameraController {
             scroll: 0.0,
             speed,
             sensitivity,
+            mouse_pressed: false,
         }
     }
 
-    pub(crate) fn process_keyboard(
-        &mut self,
-        key: VirtualKeyCode,
-        state: ElementState,
-    ) -> EventPropagation {
+    pub(crate) fn input(&mut self, event: &InputEvent) -> EventPropagation {
+        match event {
+            InputEvent::Keyboard { key, state } => self.process_keyboard(*key, *state),
+            InputEvent::Scroll(delta) => {
+                self.process_scroll(delta);
+                EventPropagation::Consume
+            }
+            InputEvent::MouseClick {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.mouse_pressed = *state == ElementState::Pressed;
+                EventPropagation::Consume
+            }
+            InputEvent::MouseMove {
+                mouse_delta_x,
+                mouse_delta_y,
+            } => {
+                if self.mouse_pressed {
+                    self.process_mouse(*mouse_delta_x, *mouse_delta_y);
+                    EventPropagation::Consume
+                } else {
+                    EventPropagation::Propagate
+                }
+            }
+            _ => EventPropagation::Propagate,
+        }
+    }
+
+    fn process_keyboard(&mut self, key: VirtualKeyCode, state: ElementState) -> EventPropagation {
         let amount = if state == ElementState::Pressed {
             1.0
         } else {
@@ -171,12 +199,12 @@ impl CameraController {
         }
     }
 
-    pub(crate) fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
+    fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
         self.rotate_horizontal = mouse_dx as f32;
         self.rotate_vertical = mouse_dy as f32;
     }
 
-    pub(crate) fn process_scroll(&mut self, delta: &MouseScrollDelta) {
+    fn process_scroll(&mut self, delta: &MouseScrollDelta) {
         const LINE_HEIGHT_PX: f32 = 100.0;
         self.scroll = -match delta {
             MouseScrollDelta::LineDelta(_, scroll) => scroll * LINE_HEIGHT_PX,

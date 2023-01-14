@@ -1,4 +1,4 @@
-use crate::camera::{Camera, CameraController, Projection};
+use crate::camera::{Camera, Projection};
 use crate::instance::{ModelInstances, Transform, TransformRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
 use crate::shader_locations::{
@@ -9,17 +9,18 @@ use crate::state::StateError::ModelLoad;
 use crate::texture::Texture;
 use crate::time::UpdateRate;
 use crate::uniform::{Uniform, UniformBinding};
-use crate::{resources, CameraUniform, EventPropagation, Object, SimulationBuffer};
+use crate::{resources, CameraUniform, Object};
 use cgmath::prelude::*;
 use cgmath::{Deg, Quaternion, Vector3};
 use derivative::Derivative;
 use itertools::Itertools;
 use std::iter;
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-use winit::event::{ElementState, KeyboardInput, MouseButton, WindowEvent};
 use winit::window::Window;
 
+// todo: rename State to Renderer
 #[derive(Error, Debug)]
 pub enum StateError {
     #[error("the window width can't be 0")]
@@ -40,7 +41,7 @@ pub enum StateError {
     InvalidModelHandle(ModelHandle),
 }
 
-type StateResult<T, E = StateError> = Result<T, E>;
+pub type StateResult<T, E = StateError> = Result<T, E>;
 
 /// A point-light that emits light in every direction and has no area.
 #[repr(C)]
@@ -54,7 +55,7 @@ struct PointLightUniform {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub(crate) struct State {
+pub(crate) struct State<RenderData> {
     /// The part of the [`Window`] that we draw to.
     surface: wgpu::Surface,
     /// Current GPU.
@@ -71,8 +72,6 @@ pub(crate) struct State {
     camera: Camera,
     /// A description of the viewport to project onto.
     projection: Projection,
-    /// A controller for moving the camera around based on user input.
-    pub(crate) camera_controller: CameraController,
     /// The uniform-representation of the camera.
     camera_uniform: Uniform<CameraUniform>,
     /// How the GPU acts on a set of data.
@@ -90,11 +89,10 @@ pub(crate) struct State {
     light_model: Model,
     /// How the GPU acts on lights.
     light_render_pipeline: wgpu::RenderPipeline,
-    /// Whether the mouse button is pressed or not.
-    pub(crate) mouse_pressed: bool,
     /// A render pass for the GUI from egui.
     #[derivative(Debug = "ignore")]
     egui_renderer: egui_wgpu::Renderer,
+    _data: PhantomData<RenderData>,
 }
 
 /// An identifier for a specific model that has been loaded into the engine.
@@ -103,7 +101,7 @@ pub type ModelHandle = usize;
 /// An identifier for a group of model instances.
 pub type InstancesHandle = usize;
 
-impl State {
+impl<RenderData> State<RenderData> {
     pub(crate) fn load_model(&mut self, path: &Path) -> StateResult<ModelHandle> {
         let obj_model = resources::load_model(
             path,
@@ -133,9 +131,7 @@ impl State {
         self.instances.push(instances);
         Ok(index)
     }
-}
 
-impl State {
     pub(crate) fn new(window: &Window) -> StateResult<Self> {
         let size = window.inner_size();
 
@@ -235,7 +231,6 @@ impl State {
 
         let camera = Camera::new((0.0, 5.0, 10.0), Deg(-90.0), Deg(-20.0));
         let projection = Projection::new(config.width, config.height, Deg(70.0), 0.1, 100.0);
-        let camera_controller = CameraController::new(7.0, 1.0);
         let mut camera_uniform_data = CameraUniform::new();
         camera_uniform_data.update_view_projection(&camera, &projection);
         let camera_uniform = Uniform::builder(&device, camera_uniform_data)
@@ -322,7 +317,6 @@ impl State {
             clear_color,
             camera,
             projection,
-            camera_controller,
             camera_uniform,
             render_pipeline,
             material_bind_group_layout,
@@ -332,8 +326,8 @@ impl State {
             light_uniform,
             light_render_pipeline,
             light_model,
-            mouse_pressed: false,
             egui_renderer,
+            _data: PhantomData,
         })
     }
 
@@ -372,63 +366,6 @@ impl State {
         }
     }
 
-    pub(crate) fn input(&mut self, event: &WindowEvent) -> EventPropagation {
-        match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        virtual_keycode: Some(key),
-                        state,
-                        ..
-                    },
-                ..
-            } => self.camera_controller.process_keyboard(*key, *state),
-            WindowEvent::MouseWheel { delta, .. } => {
-                self.camera_controller.process_scroll(delta);
-                EventPropagation::Consume
-            }
-            WindowEvent::MouseInput {
-                button: MouseButton::Left,
-                state,
-                ..
-            } => {
-                self.mouse_pressed = *state == ElementState::Pressed;
-                EventPropagation::Consume
-            }
-            _ => EventPropagation::Propagate,
-        }
-    }
-
-    pub(crate) fn update(&mut self, time: &UpdateRate, buffer: &SimulationBuffer<Vec<Object>>) {
-        self.camera_controller
-            .update_camera(&mut self.camera, time.delta_time);
-        self.camera_uniform.update_data(&self.queue, |camera_data| {
-            camera_data.update_view_projection(&self.camera, &self.projection)
-        });
-
-        if let Some(objects) = buffer.pop() {
-            Itertools::group_by(objects.into_iter(), |object| object.instances_group)
-                .into_iter()
-                .for_each(|(instances_handle, object_instances)| {
-                    let transforms = object_instances.map(|object| object.transform).collect();
-                    if let Some(instances) = self.instances.get_mut(instances_handle) {
-                        instances.update_transforms(&self.device, transforms)
-                    }
-                });
-        }
-
-        // Animate light rotation
-        const DEGREES_PER_SECOND: f32 = 60.0;
-        self.light_uniform.update_data(&self.queue, |light| {
-            let old_position: Vector3<_> = light.position.into();
-            let rotation = Quaternion::from_axis_angle(
-                Vector3::unit_y(),
-                Deg(DEGREES_PER_SECOND * time.delta_time.as_secs_f32()),
-            );
-            light.position = (rotation * old_position).into();
-        });
-    }
-
     /// Example UI.
     fn ui(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
@@ -458,7 +395,6 @@ impl State {
     pub(crate) fn render(
         &mut self,
         window: &Window,
-        egui_input: egui::RawInput,
         egui_state: &mut egui_winit::State,
         context: &mut egui::Context,
     ) -> StateResult<()> {
@@ -469,6 +405,8 @@ impl State {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let egui_input = egui_state.take_egui_input(window);
 
         let mut encoder = self
             .device
@@ -576,6 +514,46 @@ impl State {
         output.present();
 
         Ok(())
+    }
+}
+
+impl<RenderData> State<RenderData>
+where
+    RenderData: IntoIterator<Item = Object>,
+{
+    pub(crate) fn update<CameraUpdateFn>(
+        &mut self,
+        time: &UpdateRate,
+        objects: RenderData,
+        mut update_camera: CameraUpdateFn,
+    ) where
+        CameraUpdateFn: FnMut(&mut Camera, &UpdateRate),
+    {
+        // todo: move this line into update_data closure
+        update_camera(&mut self.camera, time);
+        self.camera_uniform.update_data(&self.queue, |camera_data| {
+            camera_data.update_view_projection(&self.camera, &self.projection)
+        });
+
+        Itertools::group_by(objects.into_iter(), |object| object.instances_group)
+            .into_iter()
+            .for_each(|(instances_handle, object_instances)| {
+                let transforms = object_instances.map(|object| object.transform).collect();
+                if let Some(instances) = self.instances.get_mut(instances_handle) {
+                    instances.update_transforms(&self.device, transforms)
+                }
+            });
+
+        // Animate light rotation
+        const DEGREES_PER_SECOND: f32 = 60.0;
+        self.light_uniform.update_data(&self.queue, |light| {
+            let old_position: Vector3<_> = light.position.into();
+            let rotation = Quaternion::from_axis_angle(
+                Vector3::unit_y(),
+                Deg(DEGREES_PER_SECOND * time.delta_time.as_secs_f32()),
+            );
+            light.position = (rotation * old_position).into();
+        });
     }
 }
 
