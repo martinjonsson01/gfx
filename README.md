@@ -13,6 +13,7 @@ A basic graphics library implemented in Rust. Not meant to be used for serious e
 - [ ] Mip-maps and texture filtering
 - [ ] Enable shader debugging using debug symbols and Renderdoc
 - [ ] Allow creation of objects during simulation loop
+- [ ] Allow interaction between client UI and simulation context (requires some form of synchronization, a command buffer?)
 
 ## Architecture
 
