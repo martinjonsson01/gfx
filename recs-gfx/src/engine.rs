@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use tracing::{error, info, info_span, instrument, span, warn, Level};
+use tracing::{error, info_span, instrument, span, trace, warn, Level};
 use winit::window::Window;
 
 /// An error that has occurred within the engine.
@@ -322,10 +322,10 @@ where
         }
 
         let render_rate = &self.time.render;
-        info!("gfx {render_rate}");
+        trace!("gfx {render_rate}");
 
         let simulation_rate = &self.time.simulation;
-        info!("sim {simulation_rate}");
+        trace!("sim {simulation_rate}");
 
         if let Ok(render_data) = self.render_data_receiver.try_recv() {
             renderer.update(&self.time.render, render_data, |camera, update_rate| {
