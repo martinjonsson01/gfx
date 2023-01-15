@@ -18,6 +18,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tracing::info;
 use winit::window::Window;
 
 #[derive(Error, Debug)]
@@ -187,12 +188,24 @@ impl<UIFn, Data> Renderer<UIFn, Data> {
                 surface: format!("{surface:?}"),
                 adapter: format!("{adapter:?}"),
             })?;
+        let present_mode = {
+            let supported_modes = surface.get_supported_present_modes(&adapter);
+            if let Some(mailbox) = supported_modes
+                .iter()
+                .find(|&mode| mode == &wgpu::PresentMode::Mailbox)
+            {
+                *mailbox // Fast VSync, but not supported everywhere
+            } else {
+                wgpu::PresentMode::AutoVsync // Supported everywhere
+            }
+        };
+        info!("Using `{present_mode:?}` presentation mode");
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Mailbox, // Fast VSync
+            present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
         surface.configure(&device, &config);
