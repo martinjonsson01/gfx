@@ -14,6 +14,29 @@ A basic graphics library implemented in Rust. Not meant to be used for serious e
 - [ ] Enable shader debugging using debug symbols and Renderdoc
 - [ ] Allow creation of objects during simulation loop
 
+## Architecture
+
+The engine uses two threads:
+* The main thread of the program is used for rendering and the window event loop;
+* A simulation thread is used to run the code provided by the client uncoupled from the main thread.
+
+An example of how they are orchestrated is shown below, where the shutdown flow is modeled for when a simulation error occurs:
+```mermaid
+sequenceDiagram
+    Simulation-->>Main: SimulationError has occurred
+    Main-->>Simulation: Shutdown request
+
+    Note over Simulation: Gracefully\nshutting down...
+
+    Main->>Simulation: Wait for channel to drop (timeout 1s)...
+    Simulation->>Main: Thread exited (or timed out)
+
+    Main->>Windowing: Exit with SimulationError
+
+    Note over Windowing: Logs error
+    Note over Windowing: Shuts down\nmain thread
+```
+
 ## Setting up development environment
 
 This project uses Rust nightly.
