@@ -67,13 +67,13 @@ const AVERAGE_FPS_SAMPLES: usize = 128;
 
 /// The driving actor of all windowing, rendering and simulation.
 #[derive(Debug)]
-pub struct Engine<GfxInitFn, SimulationFn, ClientContext, RenderData> {
+pub struct Engine<GfxInitFn, UIFn, SimulationFn, ClientContext, RenderData> {
     simulation: SimulationThread<SimulationFn, ClientContext, RenderData>,
     main: MainThread<GfxInitFn, RenderData>,
     /// The window management wrapper.
-    windowing: Windowing<RenderData>,
+    windowing: Windowing<UIFn, RenderData>,
     /// The current state of the renderer.
-    renderer: Renderer<RenderData>,
+    renderer: Renderer<UIFn, RenderData>,
 }
 
 const CAMERA_SPEED: f32 = 7.0;
@@ -105,9 +105,10 @@ pub enum SimulationMessage {
     Exit,
 }
 
-impl<GfxInitFn, SimulationFn, ClientContext, RenderData>
-    Engine<GfxInitFn, SimulationFn, ClientContext, RenderData>
+impl<GfxInitFn, UIFn, SimulationFn, ClientContext, RenderData>
+    Engine<GfxInitFn, UIFn, SimulationFn, ClientContext, RenderData>
 where
+    for<'a> UIFn: Fn(&egui::Context) + 'a,
     for<'a> RenderData: IntoIterator<Item = Object> + Send + 'a,
     for<'a> ClientContext: Send + 'a,
     for<'a> GfxInitFn: Fn(&mut ClientContext, &mut dyn Creator) -> GenericResult<()> + 'a,
@@ -123,6 +124,7 @@ where
     /// The `client_context` is passed to both the renderer and simulator to store data in.
     pub fn new(
         initialize_gfx: GfxInitFn,
+        user_interface: Option<UIFn>,
         simulate: SimulationFn,
         client_context: ClientContext,
     ) -> EngineResult<Self> {
@@ -131,7 +133,7 @@ where
 
         let (windowing, window_event_receiver, window_command_sender) =
             Windowing::new().map_err(EngineError::WindowCreation)?;
-        let renderer = Renderer::new(&windowing.window)
+        let renderer = Renderer::new(&windowing.window, user_interface)
             .map_err(|e| EngineError::StateConstruction(Box::new(e)))?;
 
         let (main_thread_sender, main_thread_receiver) = unbounded();
@@ -284,7 +286,7 @@ impl<GfxInitFn, RenderData> MainThread<GfxInitFn, RenderData>
 where
     for<'a> RenderData: IntoIterator<Item = Object> + Send + 'a,
 {
-    fn tick(&mut self, renderer: &mut Renderer<RenderData>) -> EngineResult<()> {
+    fn tick<UIFn>(&mut self, renderer: &mut Renderer<UIFn, RenderData>) -> EngineResult<()> {
         let span = span!(Level::INFO, "engine");
         let _enter = span.enter();
 
@@ -365,7 +367,10 @@ where
     }
 }
 
-impl<Data> Renderer<Data> {
+impl<UIFn, Data> Renderer<UIFn, Data>
+where
+    UIFn: Fn(&egui::Context),
+{
     fn tick(
         &mut self,
         window: &Window,
@@ -482,7 +487,7 @@ pub trait Creator {
     fn load_model(&mut self, path: &Path) -> EngineResult<ModelHandle>;
 }
 
-impl<RenderData> Creator for Renderer<RenderData> {
+impl<UIFn, Data> Creator for Renderer<UIFn, Data> {
     #[instrument(skip(self))]
     fn create_objects(
         &mut self,

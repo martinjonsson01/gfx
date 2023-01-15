@@ -64,7 +64,7 @@ pub enum WindowingCommand {
 /// A facade to the OS' windowing system.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct Windowing<RenderData> {
+pub struct Windowing<UIFn, RenderData> {
     pub(crate) window: Window,
     #[derivative(Debug = "ignore")]
     pub(crate) egui_context: egui::Context,
@@ -74,10 +74,12 @@ pub struct Windowing<RenderData> {
     event_sender: Sender<WindowingEvent>,
     command_receiver: Receiver<WindowingCommand>,
     _phantom0: PhantomData<RenderData>,
+    _phantom1: PhantomData<UIFn>,
 }
 
-impl<RenderData> Windowing<RenderData>
+impl<UIFn, RenderData> Windowing<UIFn, RenderData>
 where
+    for<'a> UIFn: 'a,
     for<'a> RenderData: 'a,
 {
     /// Tries to create a new root `Window`.
@@ -102,18 +104,19 @@ where
             event_sender,
             command_receiver,
             _phantom0: PhantomData::default(),
+            _phantom1: PhantomData::default(),
         };
         Ok((windowing, event_receiver, command_sender))
     }
 
     pub(crate) fn run<UpdateFn>(
         self,
-        mut renderer: Renderer<RenderData>,
+        mut renderer: Renderer<UIFn, RenderData>,
         mut update_loop: UpdateFn,
     ) -> !
     where
         for<'a> UpdateFn: FnMut(
-                &mut Renderer<RenderData>,
+                &mut Renderer<UIFn, RenderData>,
                 &Window,
                 &mut egui::Context,
                 &mut egui_winit::State,
@@ -128,6 +131,7 @@ where
             event_sender,
             command_receiver,
             _phantom0,
+            _phantom1,
         } = self;
         event_loop.run(move |event, _, control_flow| {
             let span = span!(Level::INFO, "windowing");
@@ -171,7 +175,7 @@ where
     #[instrument(level = "trace", skip_all, fields(event, window))]
     fn handle_event<UpdateFn>(
         event: Event<()>,
-        renderer: &mut Renderer<RenderData>,
+        renderer: &mut Renderer<UIFn, RenderData>,
         update_loop: &mut UpdateFn,
         window: &mut Window,
         egui_context: &mut egui::Context,
@@ -180,7 +184,7 @@ where
     ) -> WindowingResult<()>
     where
         UpdateFn: FnMut(
-            &mut Renderer<RenderData>,
+            &mut Renderer<UIFn, RenderData>,
             &Window,
             &mut egui::Context,
             &mut egui_winit::State,

@@ -42,6 +42,7 @@ pub use crate::instance::Transform;
 use crate::renderer::{InstancesHandle, ModelHandle};
 use cgmath::{Matrix4, SquareMatrix};
 use crossbeam_queue::ArrayQueue;
+pub use egui;
 
 mod shader_locations {
     use wgpu::ShaderLocation;

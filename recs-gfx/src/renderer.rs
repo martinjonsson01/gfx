@@ -54,7 +54,7 @@ struct PointLightUniform {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub(crate) struct Renderer<Data> {
+pub(crate) struct Renderer<UIFn, Data> {
     /// The part of the [`Window`] that we draw to.
     surface: wgpu::Surface,
     /// Current GPU.
@@ -91,6 +91,8 @@ pub(crate) struct Renderer<Data> {
     /// A render pass for the GUI from egui.
     #[derivative(Debug = "ignore")]
     egui_renderer: egui_wgpu::Renderer,
+    /// The function called every frame to render the UI.
+    user_interface: Option<UIFn>,
     _data: PhantomData<Data>,
 }
 
@@ -100,7 +102,7 @@ pub type ModelHandle = usize;
 /// An identifier for a group of model instances.
 pub type InstancesHandle = usize;
 
-impl<Data> Renderer<Data> {
+impl<UIFn, Data> Renderer<UIFn, Data> {
     pub(crate) fn load_model(&mut self, path: &Path) -> RendererResult<ModelHandle> {
         let obj_model = resources::load_model(
             path,
@@ -131,7 +133,7 @@ impl<Data> Renderer<Data> {
         Ok(index)
     }
 
-    pub(crate) fn new(window: &Window) -> RendererResult<Self> {
+    pub(crate) fn new(window: &Window, user_interface: Option<UIFn>) -> RendererResult<Self> {
         let size = window.inner_size();
 
         if size.width == 0 {
@@ -326,6 +328,7 @@ impl<Data> Renderer<Data> {
             light_render_pipeline,
             light_model,
             egui_renderer,
+            user_interface,
             _data: PhantomData,
         })
     }
@@ -364,33 +367,12 @@ impl<Data> Renderer<Data> {
             self.projection.resize(new_size.width, new_size.height);
         }
     }
+}
 
-    /// Example UI.
-    fn ui(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Organize windows").clicked() {
-                        ui.ctx().memory().reset_areas();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button("Reset egui memory")
-                        .on_hover_text("Forget scroll, positions, sizes etc")
-                        .clicked()
-                    {
-                        *ui.ctx().memory() = Default::default();
-                        ui.close_menu();
-                    }
-                });
-            });
-        });
-        egui::Window::new("Test").resizable(true).show(ctx, |ui| {
-            let _test_button = ui.button("test button");
-            ui.allocate_space(ui.available_size())
-        });
-    }
-
+impl<UIFn, Data> Renderer<UIFn, Data>
+where
+    UIFn: Fn(&egui::Context),
+{
     pub(crate) fn render(
         &mut self,
         window: &Window,
@@ -460,9 +442,9 @@ impl<Data> Renderer<Data> {
             #[cfg(debug_assertions)]
             render_pass.pop_debug_group();
         }
-        {
+        if let Some(user_interface) = &self.user_interface {
             context.begin_frame(egui_input);
-            self.ui(context);
+            user_interface(context);
             let full_output = context.end_frame();
 
             let paint_jobs = context.tessellate(full_output.shapes);
@@ -516,7 +498,7 @@ impl<Data> Renderer<Data> {
     }
 }
 
-impl<Data> Renderer<Data>
+impl<UIFn, Data> Renderer<UIFn, Data>
 where
     Data: IntoIterator<Item = Object>,
 {

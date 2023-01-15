@@ -4,7 +4,7 @@ use color_eyre::Report;
 use rand::Rng;
 use recs_gfx::engine::{Creator, Engine, GenericResult, RingSender};
 use recs_gfx::time::UpdateRate;
-use recs_gfx::{Object, Transform};
+use recs_gfx::{egui, Object, Transform};
 use std::path::Path;
 use std::time::Duration;
 use tracing::instrument;
@@ -75,7 +75,7 @@ fn main() -> Result<(), Report> {
         Ok(())
     }
 
-    let engine = Engine::new(init_gfx, simulate, SimulationContext::new())?;
+    let engine = Engine::new(init_gfx, Some(ui), simulate, SimulationContext::new())?;
     engine.start()?;
 
     Ok(())
@@ -116,6 +116,32 @@ fn create_transforms() -> Vec<Transform> {
             })
         })
         .collect()
+}
+
+/// Example UI.
+fn ui(ctx: &egui::Context) {
+    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        egui::menu::bar(ui, |ui| {
+            ui.menu_button("File", |ui| {
+                if ui.button("Organize windows").clicked() {
+                    ui.ctx().memory().reset_areas();
+                    ui.close_menu();
+                }
+                if ui
+                    .button("Reset egui memory")
+                    .on_hover_text("Forget scroll, positions, sizes etc")
+                    .clicked()
+                {
+                    *ui.ctx().memory() = Default::default();
+                    ui.close_menu();
+                }
+            });
+        });
+    });
+    egui::Window::new("Test").resizable(true).show(ctx, |ui| {
+        let _test_button = ui.button("test button");
+        ui.allocate_space(ui.available_size())
+    });
 }
 
 fn install_tracing() -> Result<(), Report> {
