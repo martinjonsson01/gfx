@@ -1,4 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use std::thread;
 use std::time::Duration;
 
 fn criterion_benchmark(c: &mut Criterion) {
@@ -6,7 +7,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
     group.sample_size(1000);
     group.bench_function("example", |bencher| {
-        bencher.iter(|| println!("No benchmark implemented yet"))
+        bencher.iter(|| thread::sleep(Duration::from_micros(100)))
     });
     group.finish();
 }
