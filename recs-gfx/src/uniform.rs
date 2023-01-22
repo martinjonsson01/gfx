@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+
 use wgpu::util::DeviceExt;
 
 /// A value that stays the same during shader execution.

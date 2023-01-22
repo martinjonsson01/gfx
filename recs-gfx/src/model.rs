@@ -1,12 +1,14 @@
-use crate::shader_locations::*;
-use crate::texture::Texture;
+use std::mem::size_of;
+use std::ops::Range;
+
 use cgmath::Vector3;
 use image::Rgb;
 use palette::Srgb;
-use std::mem::size_of;
-use std::ops::Range;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{BindGroup, Buffer, BufferUsages};
+
+use crate::shader_locations::*;
+use crate::texture::Texture;
 
 /// A 3D model representing a visible object.
 #[derive(Debug)]

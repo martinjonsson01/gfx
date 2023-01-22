@@ -1,21 +1,23 @@
 //! The core managing module of the engine, responsible for high-level startup and error-handling.
 
-use crate::camera::CameraController;
-use crate::renderer::{ModelHandle, Renderer, RendererError};
-use crate::time::{Time, UpdateRate};
-use crate::window::{InputEvent, Windowing, WindowingCommand, WindowingError, WindowingEvent};
-use crate::{Object, Transform};
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, SendError, Sender};
-pub use ring_channel::RingSender;
-use ring_channel::{ring_channel, RingReceiver};
 use std::error::Error;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, SendError, Sender};
+pub use ring_channel::RingSender;
+use ring_channel::{ring_channel, RingReceiver};
 use thiserror::Error;
 use tracing::{error, info_span, instrument, span, trace, warn, Level};
 use winit::window::Window;
+
+use crate::camera::CameraController;
+use crate::renderer::{ModelHandle, Renderer, RendererError};
+use crate::time::{Time, UpdateRate};
+use crate::window::{InputEvent, Windowing, WindowingCommand, WindowingError, WindowingEvent};
+use crate::{Object, Transform};
 
 /// An error that has occurred within the engine.
 #[derive(Error, Debug)]

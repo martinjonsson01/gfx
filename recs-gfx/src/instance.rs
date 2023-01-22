@@ -1,9 +1,11 @@
-use crate::renderer::ModelHandle;
-use crate::shader_locations::*;
-use cgmath::{Matrix3, Matrix4, Quaternion, Vector3};
 use std::mem::size_of;
 use std::ops::Range;
+
+use cgmath::{Matrix3, Matrix4, Quaternion, Vector3};
 use wgpu::util::DeviceExt;
+
+use crate::renderer::ModelHandle;
+use crate::shader_locations::*;
 
 /// A set of instances of a specific model.
 ///

@@ -107,13 +107,13 @@ impl std::fmt::Display for UpdateRate {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::ops::Add;
 
     use approx::assert_ulps_eq;
     use proptest::prelude::*;
-    use std::ops::Add;
-
     use test_strategy::proptest;
+
+    use super::*;
 
     prop_compose! {
         fn arb_nonnegative_duration(max_seconds: f32)

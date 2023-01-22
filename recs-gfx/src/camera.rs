@@ -1,9 +1,11 @@
-use crate::window::{ElementState, InputEvent, MouseButton, MouseScrollDelta, VirtualKeyCode};
-use crate::EventPropagation;
-use cgmath::{perspective, InnerSpace, Matrix4, Point3, Rad, Vector3};
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
+
+use cgmath::{perspective, InnerSpace, Matrix4, Point3, Rad, Vector3};
 use winit::dpi::PhysicalPosition;
+
+use crate::window::{ElementState, InputEvent, MouseButton, MouseScrollDelta, VirtualKeyCode};
+use crate::EventPropagation;
 
 /// The coordinate system in wgpu is based on DirectX's and Metal's coordinate systems.
 /// This means that in normalized device coordinates, the x- and y-axis span [-1, 1], with

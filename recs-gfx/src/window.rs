@@ -1,16 +1,17 @@
+use std::marker::PhantomData;
+
 use crossbeam_channel::{select, unbounded, Receiver, RecvError, SendError, Sender};
 use derivative::Derivative;
-use std::marker::PhantomData;
 use thiserror::Error;
 use tracing::{instrument, span, Level};
 use winit::dpi::PhysicalSize;
 use winit::event::{DeviceEvent, Event, KeyboardInput, WindowEvent};
+pub use winit::event::{ElementState, MouseButton, MouseScrollDelta, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
 use crate::engine::{EngineError, EngineResult};
 use crate::renderer::Renderer;
-pub use winit::event::{ElementState, MouseButton, MouseScrollDelta, VirtualKeyCode};
 
 /// An error that has occurred relating to window management.
 #[derive(Error, Debug)]

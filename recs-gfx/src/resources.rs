@@ -1,15 +1,17 @@
-use crate::model::{Material, Mesh, Model, ModelVertex};
-use crate::texture;
-use crate::texture::Texture;
-use cgmath::{InnerSpace, Vector2, Vector3, Vector4, Zero};
-use image::Rgb;
 use std::io;
 use std::io::{BufReader, Cursor};
 use std::path::{Path, PathBuf};
+
+use cgmath::{InnerSpace, Vector2, Vector3, Vector4, Zero};
+use image::Rgb;
 use thiserror::Error;
 use tracing::warn;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue};
+
+use crate::model::{Material, Mesh, Model, ModelVertex};
+use crate::texture;
+use crate::texture::Texture;
 
 const ASSETS_PATH: &str = "assets";
 

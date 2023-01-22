@@ -26,6 +26,14 @@
     clippy::large_enum_variant
 )]
 
+use cgmath::{Matrix4, SquareMatrix};
+use crossbeam_queue::ArrayQueue;
+pub use egui;
+
+use crate::camera::{Camera, Projection};
+pub use crate::instance::Transform;
+use crate::renderer::{InstancesHandle, ModelHandle};
+
 mod camera;
 pub mod engine;
 mod instance;
@@ -36,13 +44,6 @@ mod texture;
 pub mod time;
 mod uniform;
 mod window;
-
-use crate::camera::{Camera, Projection};
-pub use crate::instance::Transform;
-use crate::renderer::{InstancesHandle, ModelHandle};
-use cgmath::{Matrix4, SquareMatrix};
-use crossbeam_queue::ArrayQueue;
-pub use egui;
 
 mod shader_locations {
     use wgpu::ShaderLocation;

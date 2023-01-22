@@ -1,13 +1,15 @@
+use std::path::Path;
+use std::time::Duration;
+
 use cgmath::{Deg, InnerSpace, Quaternion, Rotation3, Vector3, Zero};
 use color_eyre::eyre::Result;
 use color_eyre::Report;
 use rand::Rng;
+use tracing::instrument;
+
 use recs_gfx::engine::{Creator, Engine, GenericResult, RingSender};
 use recs_gfx::time::UpdateRate;
 use recs_gfx::{egui, Object, Transform};
-use std::path::Path;
-use std::time::Duration;
-use tracing::instrument;
 
 struct SimulationContext {
     objects: Vec<Object>,

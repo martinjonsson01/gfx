@@ -1,3 +1,15 @@
+use std::iter;
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+
+use cgmath::prelude::*;
+use cgmath::{Deg, Quaternion, Vector3};
+use derivative::Derivative;
+use itertools::Itertools;
+use thiserror::Error;
+use tracing::info;
+use winit::window::Window;
+
 use crate::camera::{Camera, Projection};
 use crate::instance::{ModelInstances, Transform, TransformRaw};
 use crate::model::{DrawLight, DrawModel, Model, ModelVertex, Vertex};
@@ -10,16 +22,6 @@ use crate::texture::Texture;
 use crate::time::UpdateRate;
 use crate::uniform::{Uniform, UniformBinding};
 use crate::{resources, CameraUniform, Object};
-use cgmath::prelude::*;
-use cgmath::{Deg, Quaternion, Vector3};
-use derivative::Derivative;
-use itertools::Itertools;
-use std::iter;
-use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-use thiserror::Error;
-use tracing::info;
-use winit::window::Window;
 
 #[derive(Error, Debug)]
 pub enum RendererError {
