@@ -161,7 +161,7 @@ impl<UIFn, Data> Renderer<UIFn, Data> {
         // is only a one-off initialization step.
         let adapter =
             pollster::block_on(async { instance.request_adapter(&adapter_options).await })
-                .ok_or_else(|| RendererError::AdapterNotFound)?;
+                .ok_or(RendererError::AdapterNotFound)?;
 
         let (device, queue) = pollster::block_on(async {
             adapter
